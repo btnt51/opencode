@@ -34,6 +34,7 @@ import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { McpCatalog } from "./catalog"
 import { McpEvent } from "@opencode-ai/schema/mcp-event"
 import { McpBrowser } from "./browser"
+import { Sandbox } from "@/sandbox/sandbox"
 
 const DEFAULT_TIMEOUT = 30_000
 const CLIENT_OPTIONS = {
@@ -344,16 +345,31 @@ const layer = Layer.effect(
       const [cmd, ...args] = mcp.command
       const baseDir = yield* InstanceState.directory
       const cwd = mcp.cwd ? path.resolve(baseDir, mcp.cwd) : baseDir
+      const cfg = yield* cfgSvc.get()
+      const processConfig = yield* Effect.tryPromise({
+        try: () =>
+          Sandbox.localMcp({
+            config: cfg.sandbox,
+            command: cmd,
+            args,
+            cwd,
+            env: process.env,
+            configuredEnvironment: {
+              ...(cmd === "opencode" ? { BUN_BE_BUN: "1" } : {}),
+              ...mcp.environment,
+            },
+            network: mcp.sandbox?.network ?? "none",
+          }),
+        catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+      })
       const transport = new StdioClientTransport({
         stderr: "pipe",
-        command: cmd,
-        args,
-        cwd,
-        env: {
-          ...process.env,
-          ...(cmd === "opencode" ? { BUN_BE_BUN: "1" } : {}),
-          ...mcp.environment,
-        },
+        command: processConfig.command,
+        args: processConfig.args,
+        cwd: processConfig.cwd,
+        env: Object.fromEntries(
+          Object.entries(processConfig.env).filter((entry): entry is [string, string] => entry[1] !== undefined),
+        ),
       })
 
       const connectTimeout = mcp.timeout ?? DEFAULT_TIMEOUT
@@ -373,6 +389,22 @@ const layer = Layer.effect(
       function* (key: string, mcp: ConfigMCPV1.Info) {
         if (mcp.enabled === false) {
           return DISABLED_RESULT
+        }
+        const cfg = yield* cfgSvc.get()
+        if (!Sandbox.mcpAllowed(cfg.sandbox, key)) {
+          return {
+            status: { status: "failed", error: `MCP "${key}" is disabled by sandbox network policy` },
+          } satisfies CreateResult
+        }
+        const configured = cfg.mcp?.[key]
+        if (
+          Sandbox.mcpAllowlist(cfg.sandbox) &&
+          mcp.type === "remote" &&
+          (!configured || !isMcpConfigured(configured) || configured.type !== "remote" || configured.url !== mcp.url)
+        ) {
+          return {
+            status: { status: "failed", error: `MCP "${key}" URL does not match its allowed configuration` },
+          } satisfies CreateResult
         }
 
         const { client: mcpClient, status } =
@@ -494,6 +526,19 @@ const layer = Layer.effect(
         const cfg = yield* cfgSvc.get()
         const bridge = yield* EffectBridge.make()
         const config = cfg.mcp ?? {}
+        const unknown = Sandbox.unknownMcp(cfg.sandbox, Object.keys(config))
+        if (unknown.length) {
+          return yield* Effect.die(
+            new Error(
+              `Sandbox MCP allowlist references unknown server${unknown.length === 1 ? "" : "s"}: ${unknown.join(", ")}`,
+            ),
+          )
+        }
+        yield* Effect.logDebug("sandbox networking", {
+          tools: Sandbox.toolNetwork(cfg.sandbox),
+          provider: Sandbox.providerNetwork(cfg.sandbox),
+          mcpAllowed: Sandbox.mcpAllowlist(cfg.sandbox) ?? "legacy",
+        })
         const s: State = {
           config: {},
           status: {},

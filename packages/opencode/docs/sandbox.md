@@ -1,28 +1,63 @@
 # Sandbox mode
 
-OpenCode can isolate commands executed by the shell tool with Linux bubblewrap. This mode is opt-in and fails closed: when it is requested on an unsupported platform or `bwrap` is unavailable, the command is not run.
+OpenCode can isolate agent-controlled shell commands with Linux bubblewrap. This mode is opt-in and fails closed: when it is requested on an unsupported platform, `bwrap` is unavailable, or namespace setup fails, the command is not run.
 
-```json
+```jsonc
 {
   "sandbox": {
     "enabled": true,
     "filesystem": {
       "read": ["/workspace/shared"],
       "write": ["/workspace/project"],
-      "deny": ["/workspace/project/secrets"]
+      "deny": ["/home/user/.ssh", "/home/user/.gnupg"]
     },
-    "network": false,
+    "network": {
+      "tools": "none",
+      "provider": "configured",
+      "mcp": {
+        "allow": ["local-filesystem", "company-mcp"]
+      }
+    },
     "environment": "safe"
+  },
+  "mcp": {
+    "local-filesystem": {
+      "type": "local",
+      "command": ["local-filesystem-mcp"],
+      "sandbox": { "network": "none" }
+    },
+    "company-mcp": {
+      "type": "remote",
+      "url": "https://mcp.example.internal"
+    },
+    "other-mcp": {
+      "type": "remote",
+      "url": "https://other.example.com"
+    }
   }
 }
 ```
 
-The active workspace and `/tmp` are writable by default. Configured `read` paths are read-only and configured `write` paths are writable. Paths are canonicalized before mounting, allowed paths beneath a denied path are rejected, and the rest of the host filesystem is absent. System executable and library directories are mounted read-only, together with the minimal host account, name-resolution, and TLS certificate files needed by ordinary command-line tools. `/proc` and `/sys` are not mounted. A private network namespace disables networking by default; `network: true` shares host networking. The namespace and mounts apply to the whole descendant process tree.
+This policy has three separate trust boundaries:
 
-The default `safe` environment retains only terminal, locale, time-zone, and executable-search variables. `environment: "all"` explicitly passes the existing shell environment and may expose credentials.
+- `tools` controls the whole subprocess tree beneath the shell tool. `"none"` creates a private network namespace; `"full"` deliberately shares host networking. There is no hostname allowlist, proxy, or provider-domain exception.
+- `provider` controls provider transport in the trusted OpenCode parent. `"configured"` permits configured provider clients; `"disabled"` rejects provider initialization. Provider traffic never enters the shell namespace.
+- `mcp.allow` contains configured MCP names, not hosts. An allowed remote MCP connects from the trusted parent to its statically configured URL. Other MCPs do not connect and report that sandbox policy disabled them. A name which does not exist in `mcp` is a configuration error.
 
-Sandbox containment replaces shell and external-directory approval prompts for sandboxed shell commands; other tool permissions remain active. Direct in-process file tools, PTYs, LSP servers, plugins, MCP servers, formatters, and OpenCode's own provider traffic are not placed in this command sandbox and retain their existing permission and trust model.
+An allowed local MCP is configured code, but is not automatically network-trusted. When the main sandbox is enabled it runs in its own bubblewrap sandbox with networking disabled by default. Set that MCP's `sandbox.network` to `"full"` only when the configured executable requires host networking. Disabled MCP entries remain disabled even if named in the allowlist.
+
+## Boolean migration
+
+The existing boolean form remains supported. `sandbox.network: false` means tool networking is disabled and `sandbox.network: true` means tool networking is unrestricted. Both preserve the historical MCP behavior (enabled configured MCPs may start) and keep configured provider networking available. Use the object form to activate explicit MCP identity policy or to disable provider transport. In object form, omitted `tools` defaults to `"none"`, omitted `provider` defaults to `"configured"`, and omitted `mcp.allow` means no MCP is allowed.
+
+The active workspace and `/tmp` are writable by default. Configured `read` paths are read-only and configured `write` paths are writable. Paths are canonicalized before mounting, allowed paths beneath a denied path are rejected, and the rest of the host filesystem is absent. System executable and library directories are mounted read-only, together with minimal account, name-resolution, and TLS files. `/proc`, `/sys`, `/run`, and `/var/run` are not mounted, so host Docker, Podman, containerd, D-Bus, and SSH-agent sockets are not implicitly exposed.
+
+The default `safe` tool environment retains only terminal, locale, time-zone, and executable-search variables. It does not inherit provider API keys, cloud credentials, proxy variables, OAuth tokens, or `SSH_AUTH_SOCK`. Local MCPs similarly receive the safe base environment plus only environment entries explicitly configured on that MCP. `environment: "all"` explicitly passes the existing environment to shell tools and may expose credentials.
+
+Sandbox containment replaces shell and external-directory approval prompts for sandboxed shell commands; other tool permissions remain active.
 
 ## Guarantees and limitations
 
-Linux with unprivileged user namespaces and bubblewrap is the only supported implementation. Bubblewrap supplies mount, user, PID, IPC, UTS, cgroup, and (unless enabled) network namespaces; no Docker daemon or root privilege is required. Availability still depends on the host permitting unprivileged namespaces. This initial implementation does not provide hostname allowlists, syscall filtering beyond the namespace boundary, resource limits, or isolation for non-shell subprocess entry points. Do not enable network access for untrusted commands unless their filesystem access alone provides an adequate boundary.
+Provider HTTP clients and allowed remote MCP clients run in the trusted OpenCode parent. Plugins also execute in-process and are trusted code: this sandbox does not protect against a malicious plugin. LSP servers, formatters, PTYs, plugin installation, and other OpenCode-managed subprocesses retain their existing trust model and are not made agent-shell descendants by this policy.
+
+Linux with unprivileged user namespaces and bubblewrap is the only supported implementation. Bubblewrap supplies mount, user, PID, IPC, UTS, cgroup, and (unless explicitly shared) network namespaces; no Docker daemon or root privilege is required. Availability still depends on the host permitting unprivileged namespaces. This implementation does not provide hostname allowlists, syscall filtering beyond the namespace boundary, resource limits, or containment for trusted in-process code.

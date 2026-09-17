@@ -872,6 +872,33 @@ If a provider appears in both `enabled_providers` and `disabled_providers`, the 
 
 ---
 
+### Sandbox networking
+
+On Linux, the optional `sandbox` configuration separates untrusted shell networking from trusted provider and remote MCP transport:
+
+```json title="opencode.json"
+{
+  "$schema": "https://opencode.ai/config.json",
+  "sandbox": {
+    "enabled": true,
+    "network": {
+      "tools": "none",
+      "provider": "configured",
+      "mcp": { "allow": ["local-filesystem", "company-mcp"] }
+    },
+    "environment": "safe"
+  }
+}
+```
+
+`tools: "none"` disables networking for the entire shell subprocess tree without affecting provider requests made by OpenCode. The MCP allowlist contains configured MCP names, not hostnames. Allowed remote MCPs connect from OpenCode's trusted process to their configured URLs; other MCPs are blocked. Allowed local MCPs are sandboxed with no network by default and may opt into networking with `mcp.<name>.sandbox.network: "full"`.
+
+The legacy boolean values remain valid: `sandbox.network: false` disables tool networking and `true` allows full tool networking. Both retain configured provider networking and legacy MCP selection behavior. In the object form, tools default to `"none"`, providers default to `"configured"`, and MCPs default to blocked unless named in `allow`.
+
+Plugins run inside the trusted OpenCode process and are not contained by the shell sandbox.
+
+---
+
 ### Experimental
 
 The `experimental` key contains options that are under active development.
