@@ -15,6 +15,16 @@ type Config =
 
 const SAFE_ENV = new Set(["COLORTERM", "LANG", "LC_ALL", "LC_CTYPE", "PATH", "TERM", "TZ"])
 const SYSTEM_PATHS = ["/bin", "/usr", "/lib", "/lib64"]
+const RUNTIME_PATHS = [
+  "/etc/ca-certificates",
+  "/etc/group",
+  "/etc/hosts",
+  "/etc/nsswitch.conf",
+  "/etc/passwd",
+  "/etc/pki",
+  "/etc/resolv.conf",
+  "/etc/ssl",
+]
 
 export class UnavailableError extends Error {
   constructor(message: string) {
@@ -57,6 +67,15 @@ export async function command(input: {
   if (config.network === true) args.push("--share-net")
   args.push("--dev", "/dev", "--tmpfs", "/tmp")
   for (const item of SYSTEM_PATHS) {
+    if (
+      await fs.stat(item).then(
+        () => true,
+        () => false,
+      )
+    )
+      args.push("--ro-bind", item, item)
+  }
+  for (const item of RUNTIME_PATHS) {
     if (
       await fs.stat(item).then(
         () => true,
