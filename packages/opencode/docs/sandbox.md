@@ -17,7 +17,7 @@ OpenCode can isolate commands executed by the shell tool with Linux bubblewrap. 
 }
 ```
 
-The active workspace and `/tmp` are writable by default. Configured `read` paths are read-only and configured `write` paths are writable. Paths are canonicalized before mounting, allowed paths beneath a denied path are rejected, and the rest of the host filesystem is absent. System executable and library directories are mounted read-only. `/proc` and `/sys` are not mounted. A private network namespace disables networking by default; `network: true` shares host networking. The namespace and mounts apply to the whole descendant process tree.
+The active workspace and `/tmp` are writable by default. Configured `read` paths are read-only and configured `write` paths are writable. Paths are canonicalized before mounting, allowed paths beneath a denied path are rejected, and the rest of the host filesystem is absent. System executable and library directories are mounted read-only, together with the minimal host account, name-resolution, and TLS certificate files needed by ordinary command-line tools. `/proc` and `/sys` are not mounted. A private network namespace disables networking by default; `network: true` shares host networking. The namespace and mounts apply to the whole descendant process tree.
 
 The default `safe` environment retains only terminal, locale, time-zone, and executable-search variables. `environment: "all"` explicitly passes the existing shell environment and may expose credentials.
 

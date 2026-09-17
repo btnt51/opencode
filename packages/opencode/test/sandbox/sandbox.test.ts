@@ -24,6 +24,22 @@ describe("sandbox", () => {
     })
   })
 
+  test("sandbox exposes essential host runtime files read-only", async () => {
+    if (process.platform !== "linux" || !Bun.which("bwrap")) return
+    const command = await Sandbox.command({
+      config: true,
+      shell: "/bin/sh",
+      command: "true",
+      cwd: process.cwd(),
+      env: {},
+    })
+    const args = command.args
+    const bind = (file: string) => args.some((item, index) => item === "--ro-bind" && args[index + 1] === file)
+
+    expect(bind("/etc/passwd")).toBe(true)
+    expect(bind("/etc/resolv.conf")).toBe(true)
+  })
+
   test("requested sandbox fails closed when unavailable", async () => {
     if (process.platform === "linux" && Bun.which("bwrap")) return
     expect(
