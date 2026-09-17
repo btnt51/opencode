@@ -34,6 +34,25 @@ export const Info = Schema.Struct({
     description: "JSON schema reference for configuration validation",
   }),
   shell: Schema.optional(Schema.String).annotate({ description: "Default shell to use for terminal and bash tool" }),
+  sandbox: Schema.optional(
+    Schema.Union([
+      Schema.Boolean,
+      Schema.Struct({
+        enabled: Schema.optional(Schema.Boolean),
+        filesystem: Schema.optional(
+          Schema.Struct({
+            read: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
+            write: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
+            deny: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
+          }),
+        ),
+        network: Schema.optional(Schema.Boolean),
+        environment: Schema.optional(Schema.Literals(["safe", "all"])),
+      }),
+    ]),
+  ).annotate({
+    description: "OS-level isolation for agent shell commands (Linux only; requires bubblewrap)",
+  }),
   logLevel: Schema.optional(LogLevelRef).annotate({ description: "Log level" }),
   server: Schema.optional(ConfigServerV1.Server).annotate({
     description: "Server configuration for opencode serve and web commands",
