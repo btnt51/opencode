@@ -9,6 +9,7 @@ import { MCP } from "../mcp"
 import { Skill } from "../skill"
 import PROMPT_INITIALIZE from "./template/initialize.txt"
 import PROMPT_REVIEW from "./template/review.txt"
+import PROMPT_GOAL from "./template/goal.txt"
 import { LegacyEvent } from "@opencode-ai/schema/legacy-event"
 
 type State = {
@@ -44,6 +45,7 @@ export function hints(template: string) {
 }
 
 export const Default = {
+  GOAL: "goal",
   INIT: "init",
   REVIEW: "review",
 } as const
@@ -67,6 +69,13 @@ const layer = Layer.effect(
       const bridge = yield* EffectBridge.make()
       const commands: Record<string, Info> = {}
 
+      commands[Default.GOAL] = {
+        name: Default.GOAL,
+        description: "work autonomously until the requested goal is complete",
+        source: "command",
+        template: PROMPT_GOAL,
+        hints: hints(PROMPT_GOAL),
+      }
       commands[Default.INIT] = {
         name: Default.INIT,
         description: "guided AGENTS.md setup",
