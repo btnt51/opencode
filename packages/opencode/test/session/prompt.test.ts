@@ -1844,6 +1844,29 @@ unix(
   30_000,
 )
 
+unix(
+  "goal command expands the autonomous workflow with arguments",
+  () =>
+    Effect.gen(function* () {
+      const { llm } = yield* useServerConfig((url) => providerCfg(url))
+      const { prompt, chat } = yield* boot()
+      yield* llm.text("done")
+
+      yield* prompt.command({
+        sessionID: chat.id,
+        command: Command.Default.GOAL,
+        arguments: "add a health check",
+      })
+
+      const inputs = yield* llm.inputs
+      const messages = JSON.stringify(inputs.at(-1)?.messages)
+      expect(messages).toContain("Work autonomously")
+      expect(messages).toContain("add a health check")
+      expect(messages).toContain("Do not declare success")
+    }),
+  30_000,
+)
+
 unixNoLLMServer(
   "cancel interrupts shell and resolves cleanly",
   () =>

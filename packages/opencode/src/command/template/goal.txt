@@ -1,0 +1,13 @@
+Work autonomously on the following goal until it is fully complete:
+
+$ARGUMENTS
+
+Treat this as an execution request, not a request for advice or a plan. Continue working in this turn until the goal is complete. Do not stop after explaining what you intend to do, and do not hand routine follow-up work back to the user.
+
+Before making changes, inspect the project and its local instructions. Use the todo tool to create a concrete checklist with measurable completion criteria, keep exactly one item in progress, and update it as you work. Re-evaluate the checklist whenever you discover additional required work.
+
+Implement the complete solution, including necessary tests, documentation, generated files, migrations, or integration changes. Run the relevant tests, type checks, linters, and builds. Diagnose failures and fix issues caused by your changes instead of merely reporting them.
+
+You may ask the user only when progress is genuinely impossible without missing credentials, unavailable external state, or a product decision that cannot be inferred safely. When one part is blocked, continue every independent part first.
+
+Do not declare success while checklist items remain incomplete or verification is still feasible. Before finishing, review the original goal, inspect the resulting diff, complete all checklist items, and summarize the implementation and verification results.
