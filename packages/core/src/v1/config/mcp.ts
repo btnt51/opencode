@@ -14,6 +14,13 @@ export const Local = Schema.Struct({
   environment: Schema.optional(Schema.Record(Schema.String, Schema.String)).annotate({
     description: "Environment variables to set when running the MCP server",
   }),
+  sandbox: Schema.optional(
+    Schema.Struct({
+      network: Schema.optional(Schema.Literals(["none", "full"])).annotate({
+        description: "Network access for this local MCP process. Defaults to none when the OpenCode sandbox is enabled.",
+      }),
+    }),
+  ).annotate({ description: "Isolation policy for this configured local MCP process" }),
   enabled: Schema.optional(Schema.Boolean).annotate({
     description: "Enable or disable the MCP server on startup",
   }),

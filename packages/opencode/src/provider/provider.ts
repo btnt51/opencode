@@ -31,6 +31,7 @@ import { ModelV2 } from "@opencode-ai/core/model"
 import { ModelStatus } from "./model-status"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { ProviderError } from "./error"
+import { Sandbox } from "@/sandbox/sandbox"
 
 const OPENAI_HEADER_TIMEOUT_DEFAULT = 300_000
 
@@ -1894,6 +1895,10 @@ const layer = Layer.effect(
     })
 
     const getLanguage = Effect.fn("Provider.getLanguage")(function* (model: Model) {
+      const cfg = yield* config.get()
+      if (Sandbox.providerNetwork(cfg.sandbox) === "disabled") {
+        return yield* Effect.die(new Error("Provider networking is disabled by sandbox network policy"))
+      }
       const s = yield* InstanceState.get(state)
       const envs = yield* env.all()
       const key = `${model.providerID}/${model.id}`

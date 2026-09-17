@@ -46,7 +46,29 @@ export const Info = Schema.Struct({
             deny: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
           }),
         ),
-        network: Schema.optional(Schema.Boolean),
+        network: Schema.optional(
+          Schema.Union([
+            Schema.Boolean,
+            Schema.Struct({
+              tools: Schema.optional(Schema.Literals(["none", "full"])).annotate({
+                description: "Network access for agent-controlled shell commands. Defaults to none.",
+              }),
+              provider: Schema.optional(Schema.Literals(["configured", "disabled"])).annotate({
+                description: "Allow the trusted OpenCode process to contact configured model providers.",
+              }),
+              mcp: Schema.optional(
+                Schema.Struct({
+                  allow: Schema.mutable(Schema.Array(Schema.String)).annotate({
+                    description: "Configured MCP server names allowed to start or connect",
+                  }),
+                }),
+              ),
+            }),
+          ]),
+        ).annotate({
+          description:
+            "Network policy. Legacy false/true controls tool networking only; an object separates tools, providers, and named MCP servers.",
+        }),
         environment: Schema.optional(Schema.Literals(["safe", "all"])),
       }),
     ]),
