@@ -24,6 +24,37 @@ describe("sandbox", () => {
     })
   })
 
+  test("notification credentials never enter commands or local MCP unless explicitly configured", async () => {
+    const env = {
+      PATH: "/bin",
+      OPENCODE_TELEGRAM_BOT_TOKEN: "bot-secret",
+      OPENCODE_TELEGRAM_CHAT_ID: "chat-secret",
+      OPENCODE_TELEGRAM_PROXY: "http://user:password@127.0.0.1:7890",
+      HTTP_PROXY: "http://127.0.0.1:7890",
+      HTTPS_PROXY: "http://127.0.0.1:7890",
+      ALL_PROXY: "http://127.0.0.1:7890",
+      NO_PROXY: "localhost",
+    }
+    const command = await Sandbox.command({
+      config: false,
+      shell: "/bin/sh",
+      command: "true",
+      cwd: process.cwd(),
+      env,
+    })
+    expect(command.options.env).toEqual({ PATH: "/bin" })
+    expect(Sandbox.toolNetwork({ network: { tools: "none" } })).toBe("none")
+    const mcp = await Sandbox.localMcp({
+      config: false,
+      command: "server",
+      args: [],
+      cwd: process.cwd(),
+      env,
+      configuredEnvironment: { OPENCODE_TELEGRAM_CHAT_ID: "explicit" },
+    })
+    expect(mcp.env).toEqual({ PATH: "/bin", OPENCODE_TELEGRAM_CHAT_ID: "explicit" })
+  })
+
   test("legacy and structured network policies remain distinct", () => {
     expect(Sandbox.toolNetwork({ network: false })).toBe("none")
     expect(Sandbox.toolNetwork({ network: true })).toBe("full")
@@ -74,8 +105,7 @@ describe("sandbox", () => {
     const command = await Sandbox.command({
       config: { network: { tools: "none" } },
       shell: "/bin/sh",
-      command:
-        "/bin/sh -c 'python3 -c \"import socket; socket.create_connection((\\\"1.1.1.1\\\", 53), 1)\"'",
+      command: '/bin/sh -c \'python3 -c "import socket; socket.create_connection((\\"1.1.1.1\\", 53), 1)"\'',
       cwd: process.cwd(),
       env: { PATH: process.env.PATH },
     })
