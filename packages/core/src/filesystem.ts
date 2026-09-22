@@ -5,10 +5,12 @@ import path from "path"
 import { Context, Effect, Layer, Schema } from "effect"
 import { FSUtil } from "./fs-util"
 import { Location } from "./location"
-import { PositiveInt, RelativePath } from "./schema"
+import { RelativePath } from "./schema"
 import { FileSystemSearch } from "./filesystem/search"
-import { Entry, FileSystem, FindInput, Match } from "@opencode-ai/schema/filesystem"
+import { FindInput, GlobInput, GrepInput } from "./filesystem/input"
+import { Entry, FileSystem, Match } from "@opencode-ai/schema/filesystem"
 export { Entry, Match, Submatch } from "@opencode-ai/schema/filesystem"
+export { FindInput, GlobInput, GrepInput } from "./filesystem/input"
 
 export const ReadInput = Schema.Struct({
   path: RelativePath,
@@ -28,21 +30,6 @@ export const ListInput = Schema.Struct({
   path: RelativePath.pipe(Schema.optional),
 })
 export type ListInput = typeof ListInput.Type
-
-export { FindInput }
-
-export class GlobInput extends Schema.Class<GlobInput>("FileSystem.GlobInput")({
-  pattern: Schema.String,
-  path: RelativePath.pipe(Schema.optional),
-  limit: PositiveInt.pipe(Schema.optional),
-}) {}
-
-export class GrepInput extends Schema.Class<GrepInput>("FileSystem.GrepInput")({
-  pattern: Schema.String,
-  path: RelativePath.pipe(Schema.optional),
-  include: Schema.String.pipe(Schema.optional),
-  limit: PositiveInt.pipe(Schema.optional),
-}) {}
 
 export const Event = FileSystem.Event
 
