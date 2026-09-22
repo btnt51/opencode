@@ -2,7 +2,7 @@ import { PermissionV1 } from "@opencode-ai/core/v1/permission"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { describe, expect } from "bun:test"
 import path from "path"
-import { Effect } from "effect"
+import { Cause, Effect, Exit, Layer } from "effect"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import type { Tool } from "@/tool/tool"
 import { assertExternalDirectoryEffect } from "../../src/tool/external-directory"
@@ -11,8 +11,15 @@ import { TestInstance, tmpdirScoped } from "../fixture/fixture"
 import type { Permission } from "../../src/permission"
 import { SessionID, MessageID } from "../../src/session/schema"
 import { testEffect } from "../lib/effect"
+import { TestConfig } from "../fixture/config"
 
 const it = testEffect(LayerNode.compile(CrossSpawnSpawner.node))
+const sandboxIt = testEffect(
+  Layer.mergeAll(
+    LayerNode.compile(CrossSpawnSpawner.node),
+    TestConfig.layer({ get: () => Effect.succeed({ sandbox: true }) }),
+  ),
+)
 
 const baseCtx: Omit<Tool.Context, "ask"> = {
   sessionID: SessionID.make("ses_test"),
@@ -101,6 +108,53 @@ describe("tool.assertExternalDirectory", () => {
 
       yield* assertExternalDirectoryEffect(ctx, "/tmp/outside/file.txt", { bypass: true })
 
+      expect(requests.length).toBe(0)
+    }),
+  )
+
+  sandboxIt.instance("bypass does not bypass sandbox denial", () =>
+    Effect.gen(function* () {
+      const test = yield* TestInstance
+      const { requests, ctx } = makeCtx()
+      const target = path.join(path.dirname(test.directory), "outside", "file.txt")
+
+      const exit = yield* assertExternalDirectoryEffect(ctx, target, {
+        bypass: true,
+        operation: "read",
+      }).pipe(Effect.exit)
+
+      expect(Exit.isFailure(exit)).toBe(true)
+      if (Exit.isFailure(exit)) expect(Cause.pretty(exit.cause)).toContain("SandboxFilesystemDeniedError")
+      expect(requests.length).toBe(0)
+    }),
+  )
+
+  sandboxIt.instance("bypass inside sandbox does not prompt", () =>
+    Effect.gen(function* () {
+      const test = yield* TestInstance
+      const { requests, ctx } = makeCtx()
+
+      const result = yield* assertExternalDirectoryEffect(ctx, path.join(test.directory, "file.txt"), {
+        bypass: true,
+      })
+
+      expect(result).toBe(false)
+      expect(requests.length).toBe(0)
+    }),
+  )
+
+  sandboxIt.instance("sandboxOnly still enforces sandbox without prompting", () =>
+    Effect.gen(function* () {
+      const test = yield* TestInstance
+      const { requests, ctx } = makeCtx()
+      const target = path.join(path.dirname(test.directory), "outside", "file.txt")
+
+      const exit = yield* assertExternalDirectoryEffect(ctx, target, { sandboxOnly: true }).pipe(Effect.exit)
+
+      expect(Exit.isFailure(exit)).toBe(true)
+      if (Exit.isFailure(exit)) {
+        expect(Cause.pretty(exit.cause)).toContain("SandboxFilesystemDeniedError")
+      }
       expect(requests.length).toBe(0)
     }),
   )
