@@ -51,6 +51,11 @@ export const GrepTool = Tool.define(
           const requested = path.isAbsolute(params.path ?? ins.directory)
             ? (params.path ?? ins.directory)
             : path.join(ins.directory, params.path ?? ".")
+          yield* assertExternalDirectoryEffect(ctx, requested, {
+            bypass: false,
+            recursive: true,
+            sandboxOnly: true,
+          })
           const requestedInfo = yield* fs.stat(requested).pipe(Effect.catch(() => Effect.succeed(undefined)))
           yield* assertExternalDirectoryEffect(ctx, requested, {
             bypass: false,

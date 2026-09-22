@@ -54,6 +54,14 @@ export const ApplyPatchTool = Tool.define(
 
       const instance = yield* InstanceState.context
 
+      // Preflight every source and destination before reading patch inputs or
+      // mutating files, so one denied hunk cannot cause a partial patch.
+      yield* Effect.forEach(
+        hunks.flatMap((hunk) => [hunk.path, ...(hunk.type === "update" && hunk.move_path ? [hunk.move_path] : [])]),
+        (item) => assertExternalDirectoryEffect(ctx, path.resolve(instance.directory, item), { operation: "write" }),
+        { discard: true },
+      )
+
       // Validate file paths and check permissions
       const fileChanges: Array<{
         filePath: string
@@ -71,7 +79,6 @@ export const ApplyPatchTool = Tool.define(
 
       for (const hunk of hunks) {
         const filePath = path.resolve(instance.directory, hunk.path)
-        yield* assertExternalDirectoryEffect(ctx, filePath)
 
         switch (hunk.type) {
           case "add": {
@@ -140,7 +147,6 @@ export const ApplyPatchTool = Tool.define(
             }
 
             const movePath = hunk.move_path ? path.resolve(instance.directory, hunk.move_path) : undefined
-            yield* assertExternalDirectoryEffect(ctx, movePath)
 
             fileChanges.push({
               filePath,
