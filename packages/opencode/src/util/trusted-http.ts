@@ -3,15 +3,8 @@ export * as TrustedHttp from "./trusted-http"
 import { NodeHttpClient } from "@effect/platform-node"
 import { Effect } from "effect"
 import { HttpClient } from "effect/unstable/http"
-import DispatcherApi from "undici/lib/api/index.js"
-import Dispatcher from "undici/lib/dispatcher/dispatcher.js"
-import ProxyAgent from "undici/lib/dispatcher/proxy-agent.js"
+import { ProxyAgent } from "undici-real"
 import { ProxyEnv } from "./proxy-env"
-
-// Bun's built-in `undici` shim omits ProxyAgent, while Effect's Node client expects
-// Undici's convenience request methods. Load only the package dispatcher modules
-// and install the same API mixins as undici/index.js without changing global fetch.
-Object.assign(Dispatcher.prototype, DispatcherApi)
 
 export type Proxy = { mode: "direct" } | { mode: "environment" } | { mode: "url"; url: string }
 

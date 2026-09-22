@@ -1,4 +1,5 @@
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
+import { httpClient } from "@opencode-ai/core/effect/app-node-platform"
 import { EventV2 } from "@opencode-ai/core/event"
 import { ConfigV1 } from "@opencode-ai/core/v1/config/config"
 import { PermissionV1 } from "@opencode-ai/core/v1/permission"
@@ -28,7 +29,7 @@ export type Notification = {
 }
 
 export interface Provider {
-  readonly send: (notification: Notification) => Effect.Effect<void>
+  readonly send: (notification: Notification) => Effect.Effect<void, unknown>
   readonly proxied?: boolean
 }
 
@@ -255,14 +256,16 @@ const layer = Layer.effect(
         const configured = Object.values((yield* config.get()).notification ?? {}).filter(
           (item) => item.enabled !== false,
         )
-        const providers = yield* Effect.forEach(configured, function* (item) {
-          const transport = yield* TrustedHttp.client({
-            direct: http,
-            proxy: item.proxy,
-            destination: "https://api.telegram.org",
-          })
-          return { provider: telegram(transport.client, item, transport.proxied), events: item.events }
-        })
+        const providers = yield* Effect.forEach(configured, (item) =>
+          Effect.gen(function* () {
+            const transport = yield* TrustedHttp.client({
+              direct: http,
+              proxy: item.proxy,
+              destination: "https://api.telegram.org",
+            })
+            return { provider: telegram(transport.client, item, transport.proxied), events: item.events }
+          }),
+        )
         const service = engine({
           providers,
           metadata: (sessionID) =>
@@ -280,6 +283,10 @@ const layer = Layer.effect(
   }),
 )
 
-export const node = LayerNode.make({ service: Service, layer, deps: [Config.node, EventV2.node, Session.node] })
+export const node = LayerNode.make({
+  service: Service,
+  layer,
+  deps: [Config.node, EventV2.node, httpClient, Session.node],
+})
 
 export * as Notification from "."
