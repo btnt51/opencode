@@ -20,6 +20,15 @@ type Config =
     }
 
 const SAFE_ENV = new Set(["COLORTERM", "LANG", "LC_ALL", "LC_CTYPE", "PATH", "TERM", "TZ"])
+const TRUSTED_ENV = new Set([
+  "OPENCODE_TELEGRAM_BOT_TOKEN",
+  "OPENCODE_TELEGRAM_CHAT_ID",
+  "OPENCODE_TELEGRAM_PROXY",
+  "HTTP_PROXY",
+  "HTTPS_PROXY",
+  "ALL_PROXY",
+  "NO_PROXY",
+])
 const SYSTEM_PATHS = ["/bin", "/usr", "/lib", "/lib64"]
 const RUNTIME_PATHS = [
   "/etc/ca-certificates",
@@ -46,11 +55,12 @@ export async function command(input: {
   cwd: string
   env: NodeJS.ProcessEnv
 }) {
+  const env = untrustedEnvironment(input.env)
   if (!enabled(input.config)) {
     return ChildProcess.make(input.command, [], {
       shell: input.shell,
       cwd: input.cwd,
-      env: input.env,
+      env,
       stdin: "ignore",
       detached: process.platform !== "win32",
     })
@@ -102,7 +112,7 @@ export async function command(input: {
   args.push("--chdir", cwd, "--", input.shell, "-c", input.command)
 
   return ChildProcess.make(executable, args, {
-    env: config.environment === "all" ? input.env : safeEnvironment(input.env),
+    env: config.environment === "all" ? env : safeEnvironment(env),
     stdin: "ignore",
     detached: true,
   })
@@ -117,12 +127,13 @@ export async function localMcp(input: {
   configuredEnvironment?: Record<string, string>
   network?: "none" | "full"
 }) {
+  const env = untrustedEnvironment(input.env)
   if (!enabled(input.config)) {
     return {
       command: input.command,
       args: input.args,
       cwd: input.cwd,
-      env: { ...input.env, ...input.configuredEnvironment },
+      env: { ...env, ...input.configuredEnvironment },
     }
   }
   if (process.platform !== "linux") throw new UnavailableError(`Linux is required (running on ${process.platform})`)
@@ -141,7 +152,13 @@ export async function localMcp(input: {
   if (input.network === "full") args.push("--share-net")
   args.push("--dev", "/dev", "--tmpfs", "/tmp")
   for (const item of [...SYSTEM_PATHS, ...RUNTIME_PATHS]) {
-    if (await fs.stat(item).then(() => true, () => false)) args.push("--ro-bind", item, item)
+    if (
+      await fs.stat(item).then(
+        () => true,
+        () => false,
+      )
+    )
+      args.push("--ro-bind", item, item)
   }
   for (const item of readable) args.push("--ro-bind", item, item)
   for (const item of writable) args.push("--bind", item, item)
@@ -157,7 +174,7 @@ export async function localMcp(input: {
     command: executable,
     args,
     cwd: undefined,
-    env: { ...safeEnvironment(input.env), ...input.configuredEnvironment },
+    env: { ...safeEnvironment(env), ...input.configuredEnvironment },
   }
 }
 
@@ -192,6 +209,10 @@ export function enabled(config?: Config) {
 
 export function safeEnvironment(env: NodeJS.ProcessEnv) {
   return Object.fromEntries(Object.entries(env).filter(([key, value]) => SAFE_ENV.has(key) && value !== undefined))
+}
+
+export function untrustedEnvironment(env: NodeJS.ProcessEnv) {
+  return Object.fromEntries(Object.entries(env).filter(([key]) => !TRUSTED_ENV.has(key.toUpperCase())))
 }
 
 async function paths(items: string[], required = true) {

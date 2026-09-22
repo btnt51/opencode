@@ -897,6 +897,82 @@ The legacy boolean values remain valid: `sandbox.network: false` disables tool n
 
 Plugins run inside the trusted OpenCode process and are not contained by the shell sandbox.
 
+### Telegram notifications
+
+OpenCode can deliver trusted, notification-only Telegram messages when a session needs attention, completes, fails, or retries. Configure destinations by name so additional Telegram chats and future provider types can coexist:
+
+```json title="opencode.json"
+{
+  "$schema": "https://opencode.ai/config.json",
+  "notification": {
+    "personal": {
+      "type": "telegram",
+      "enabled": true,
+      "botToken": "{env:OPENCODE_TELEGRAM_BOT_TOKEN}",
+      "chatId": "{env:OPENCODE_TELEGRAM_CHAT_ID}",
+      "events": {
+        "attention": true,
+        "completed": {
+          "enabled": true,
+          "after": "30s"
+        },
+        "failed": true,
+        "retry": false
+      }
+    }
+  }
+}
+```
+
+Create a bot with Telegram's BotFather, start a conversation with it, and store its bot token and destination chat ID in the environment variables shown above. Enabled destinations require both values. A disabled destination may omit them. Completion durations accept `ms`, `s`, `m`, and `h` units, such as `30s`, `2m`, or `1h`; invalid values are rejected while loading configuration.
+
+`attention` covers permission and question requests. `completed` is emitted only after an actual busy-to-idle task lifecycle, after its threshold, and not while input is pending. `failed` covers a terminal session error, while `retry` follows session retry status and is disabled by default because it can be noisy. Duplicate request identities and rapid identical retry events are coalesced.
+
+Telegram delivery is best-effort and runs over HTTPS from the trusted OpenCode process. It does not enable or depend on agent shell networking and does not add Telegram to the sandbox network allowlist. Bot credentials are removed from inherited shell and local MCP environments; a local MCP receives one only if its own environment explicitly configures it. Delivery failures never fail the agent task and token-bearing Telegram URLs are not logged.
+
+Telegram connects directly when `proxy` is omitted or set to `{ "mode": "direct" }`. Proxy selection is scoped to each destination and does not affect model providers, MCP, downloads, plugins, or tools. To use the trusted process environment, configure:
+
+```json title="opencode.json"
+{
+  "notification": {
+    "personal": {
+      "type": "telegram",
+      "enabled": true,
+      "botToken": "{env:OPENCODE_TELEGRAM_BOT_TOKEN}",
+      "chatId": "{env:OPENCODE_TELEGRAM_CHAT_ID}",
+      "proxy": { "mode": "environment" }
+    }
+  }
+}
+```
+
+For the HTTPS Telegram endpoint, environment mode checks lowercase before uppercase and uses `https_proxy`, `HTTPS_PROXY`, `all_proxy`, then `ALL_PROXY`. `no_proxy` takes precedence over `NO_PROXY`; matching `api.telegram.org`, matching host-and-port entries, and `*` bypass the proxy. With no selected proxy, environment mode connects directly. This reads environment proxy variables only—it does not discover native Windows, macOS, or Linux desktop proxy settings.
+
+An explicit local proxy can instead be configured for one destination:
+
+```json title="opencode.json"
+{
+  "notification": {
+    "personal": {
+      "type": "telegram",
+      "enabled": true,
+      "botToken": "{env:OPENCODE_TELEGRAM_BOT_TOKEN}",
+      "chatId": "{env:OPENCODE_TELEGRAM_CHAT_ID}",
+      "proxy": {
+        "mode": "url",
+        "url": "{env:OPENCODE_TELEGRAM_PROXY}"
+      }
+    }
+  }
+}
+```
+
+For example, set `OPENCODE_TELEGRAM_PROXY=http://127.0.0.1:7890`, or put `http://127.0.0.1:7890` directly in `url`. HTTP and HTTPS proxy URLs are supported, including URL authentication; unsupported schemes such as `socks5://` and `socks5h://` are rejected during configuration. Proxy setup and requests share the notification's ten-second timeout. A configured proxy failure fails that notification without retrying directly, and never fails the OpenCode task.
+
+The proxy uses HTTP CONNECT and keeps TLS end-to-end between OpenCode and `api.telegram.org`; an ordinary proxy sees the Telegram hostname and port but not the encrypted bot token or message. A deliberately TLS-intercepting proxy trusted by the host can inspect HTTPS traffic, so its operator is part of the trust boundary. OpenCode never logs authenticated proxy URLs, proxy authorization, transport errors, or Telegram token-bearing URLs. Proxy variables and `OPENCODE_TELEGRAM_PROXY` are removed from inherited tool and local MCP environments unless a local MCP explicitly configures a value itself.
+
+Plugins run in-process as trusted code, so the subprocess sandbox cannot protect notification credentials from a malicious plugin. A possible future extension is an interactive Telegram provider with Allow once, Always allow, and Reject actions mapped to existing permission replies; this implementation sends notifications only and performs no polling, webhook handling, or remote control.
+
 ---
 
 ### Experimental

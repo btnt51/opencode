@@ -33,22 +33,22 @@ const DEFAULT_PORTS: Record<string, number> = {
   wss: 443,
 }
 
-export function getProxyForUrl(input: string | URL) {
+export function getProxyForUrl(input: string | URL, environment: NodeJS.ProcessEnv = process.env) {
   const url = typeof input === "string" ? (URL.canParse(input) ? new URL(input) : undefined) : input
   if (!url) return
 
   const protocol = url.protocol.split(":", 1)[0]
   const hostname = url.host.replace(/:\d*$/, "")
   const port = Number.parseInt(url.port) || DEFAULT_PORTS[protocol] || 0
-  if (!shouldProxy(hostname, port)) return
+  if (!shouldProxy(hostname, port, environment)) return
 
-  const proxy = env(`${protocol}_proxy`) || env("all_proxy")
+  const proxy = env(`${protocol}_proxy`, environment) || env("all_proxy", environment)
   if (!proxy) return
   return proxy.includes("://") ? proxy : `${protocol}://${proxy}`
 }
 
-function shouldProxy(hostname: string, port: number) {
-  const noProxy = env("no_proxy").toLowerCase()
+function shouldProxy(hostname: string, port: number, environment: NodeJS.ProcessEnv) {
+  const noProxy = env("no_proxy", environment).toLowerCase()
   if (!noProxy) return true
   if (noProxy === "*") return false
 
@@ -65,8 +65,8 @@ function shouldProxy(hostname: string, port: number) {
   })
 }
 
-function env(key: string) {
-  return process.env[key.toLowerCase()] || process.env[key.toUpperCase()] || ""
+function env(key: string, environment: NodeJS.ProcessEnv) {
+  return environment[key.toLowerCase()] || environment[key.toUpperCase()] || ""
 }
 
 export * as ProxyEnv from "./proxy-env"
