@@ -240,6 +240,11 @@ export const ReadTool = Tool.define<
       }
       const title = path.relative(instance.worktree, filepath)
 
+      yield* assertExternalDirectoryEffect(ctx, filepath, {
+        bypass: Boolean(ctx.extra?.["bypassCwdCheck"]),
+        sandboxOnly: true,
+      })
+
       const stat = yield* fs.stat(filepath).pipe(
         Effect.catchIf(
           (err) => "reason" in err && err.reason._tag === "NotFound",
@@ -262,6 +267,7 @@ export const ReadTool = Tool.define<
       if (!stat) return yield* miss(filepath)
 
       if (stat.type === "Directory") {
+        yield* assertExternalDirectoryEffect(ctx, filepath, { recursive: true, sandboxOnly: true })
         const items = yield* list(filepath)
         const limit = params.limit ?? DEFAULT_READ_LIMIT
         const offset = params.offset || 1

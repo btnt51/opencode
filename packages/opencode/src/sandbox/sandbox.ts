@@ -4,7 +4,7 @@ import { ChildProcess } from "effect/unstable/process"
 import fs from "fs/promises"
 import path from "path"
 
-type Config =
+export type Config =
   | boolean
   | {
       enabled?: boolean
@@ -48,6 +48,69 @@ export class UnavailableError extends Error {
   }
 }
 
+export class FilesystemDeniedError extends Error {
+  readonly operation: "read" | "write"
+  readonly requestedPath: string
+  readonly effectivePath: string
+
+  constructor(operation: "read" | "write", requestedPath: string, effectivePath: string) {
+    super(
+      `Sandbox denied ${operation} access to:\n${requestedPath}\nThe path is outside the configured sandbox filesystem roots.`,
+    )
+    this.name = "SandboxFilesystemDeniedError"
+    this.operation = operation
+    this.requestedPath = requestedPath
+    this.effectivePath = effectivePath
+  }
+}
+
+export type FilesystemPolicy = Awaited<ReturnType<typeof resolveFilesystemPolicy>>
+
+export async function resolveFilesystemPolicy(config: Config | undefined, cwd: string) {
+  const active = enabled(config)
+  const structured = typeof config === "object" ? config : {}
+  const workspace = await canonical(cwd, true)
+  const writableRoots = active ? await paths([workspace, ...(structured.filesystem?.write ?? [])]) : []
+  const readableRoots = active ? await paths(structured.filesystem?.read ?? []) : []
+  const deniedRoots = active ? await paths(structured.filesystem?.deny ?? [], false) : []
+  const roots = Array.from(new Set([...writableRoots, ...readableRoots]))
+
+  const inspect = async (operation: "read" | "write", requestedPath: string) => {
+    if (!active) return { allowed: true, path: path.resolve(requestedPath) }
+    const effectivePath = await canonical(requestedPath, false)
+    const denied = deniedRoots.some((root) => within(effectivePath, root))
+    const allowedRoots = operation === "write" ? writableRoots : roots
+    return { allowed: !denied && allowedRoots.some((root) => within(effectivePath, root)), path: effectivePath }
+  }
+
+  const assert = async (operation: "read" | "write", requestedPath: string) => {
+    const result = await inspect(operation, requestedPath)
+    if (!result.allowed) throw new FilesystemDeniedError(operation, requestedPath, result.path)
+    return result.path
+  }
+
+  const assertReadTree = async (requestedPath: string) => {
+    const effectivePath = await assert("read", requestedPath)
+    if (active && deniedRoots.some((root) => within(root, effectivePath))) {
+      throw new FilesystemDeniedError("read", requestedPath, effectivePath)
+    }
+    return effectivePath
+  }
+
+  return {
+    enabled: active,
+    cwd: workspace,
+    readableRoots: roots,
+    writableRoots,
+    deniedRoots,
+    canRead: async (requestedPath: string) => (await inspect("read", requestedPath)).allowed,
+    canWrite: async (requestedPath: string) => (await inspect("write", requestedPath)).allowed,
+    assertRead: (requestedPath: string) => assert("read", requestedPath),
+    assertReadTree,
+    assertWrite: (requestedPath: string) => assert("write", requestedPath),
+  }
+}
+
 export async function command(input: {
   config?: Config
   shell: string
@@ -70,14 +133,8 @@ export async function command(input: {
   if (!executable) throw new UnavailableError("bubblewrap (bwrap) was not found in PATH")
 
   const config = typeof input.config === "object" ? input.config : {}
-  const cwd = await fs.realpath(input.cwd).catch(() => {
-    throw new UnavailableError(`working directory does not exist: ${input.cwd}`)
-  })
-  const writable = await paths([cwd, ...(config.filesystem?.write ?? [])])
-  const readable = await paths(config.filesystem?.read ?? [])
-  const denied = await paths(config.filesystem?.deny ?? [], false)
-  const overlaps = [...writable, ...readable].find((item) => denied.some((deny) => within(item, deny)))
-  if (overlaps) throw new UnavailableError(`allowed path is contained by denied path: ${overlaps}`)
+  const policy = await resolveFilesystemPolicy(input.config, input.cwd)
+  const cwd = policy.cwd
 
   const args = ["--die-with-parent", "--new-session", "--unshare-all"]
   if (toolNetwork(input.config) === "full") args.push("--share-net")
@@ -100,9 +157,10 @@ export async function command(input: {
     )
       args.push("--ro-bind", item, item)
   }
-  for (const item of readable) args.push("--ro-bind", item, item)
-  for (const item of writable) args.push("--bind", item, item)
-  for (const item of denied) {
+  for (const item of policy.readableRoots.filter((item) => !policy.writableRoots.includes(item)))
+    args.push("--ro-bind", item, item)
+  for (const item of policy.writableRoots) args.push("--bind", item, item)
+  for (const item of policy.deniedRoots) {
     const directory = await fs.stat(item).then(
       (stat) => stat.isDirectory(),
       () => false,
@@ -140,14 +198,8 @@ export async function localMcp(input: {
   const executable = Bun.which("bwrap")
   if (!executable) throw new UnavailableError("bubblewrap (bwrap) was not found in PATH")
   const config = typeof input.config === "object" ? input.config : {}
-  const cwd = await fs.realpath(input.cwd).catch(() => {
-    throw new UnavailableError(`working directory does not exist: ${input.cwd}`)
-  })
-  const writable = await paths([cwd, ...(config.filesystem?.write ?? [])])
-  const readable = await paths(config.filesystem?.read ?? [])
-  const denied = await paths(config.filesystem?.deny ?? [], false)
-  const overlaps = [...writable, ...readable].find((item) => denied.some((deny) => within(item, deny)))
-  if (overlaps) throw new UnavailableError(`allowed path is contained by denied path: ${overlaps}`)
+  const policy = await resolveFilesystemPolicy(input.config, input.cwd)
+  const cwd = policy.cwd
   const args = ["--die-with-parent", "--new-session", "--unshare-all"]
   if (input.network === "full") args.push("--share-net")
   args.push("--dev", "/dev", "--tmpfs", "/tmp")
@@ -160,9 +212,10 @@ export async function localMcp(input: {
     )
       args.push("--ro-bind", item, item)
   }
-  for (const item of readable) args.push("--ro-bind", item, item)
-  for (const item of writable) args.push("--bind", item, item)
-  for (const item of denied) {
+  for (const item of policy.readableRoots.filter((item) => !policy.writableRoots.includes(item)))
+    args.push("--ro-bind", item, item)
+  for (const item of policy.writableRoots) args.push("--bind", item, item)
+  for (const item of policy.deniedRoots) {
     const directory = await fs.stat(item).then(
       (stat) => stat.isDirectory(),
       () => false,
@@ -225,6 +278,19 @@ async function paths(items: string[], required = true) {
       })
     }),
   ).then((result) => Array.from(new Set(result)))
+}
+
+// For a missing write target, realpath the closest existing ancestor and append
+// the missing suffix. This catches existing symlinked parents without pretending
+// to eliminate the check/use race inherent in path-based filesystem APIs.
+async function canonical(item: string, required: boolean): Promise<string> {
+  const absolute = path.resolve(item)
+  const resolved = await fs.realpath(absolute).catch(() => undefined)
+  if (resolved) return resolved
+  if (required) throw new UnavailableError(`sandbox path does not exist: ${item}`)
+  const parent = path.dirname(absolute)
+  if (parent === absolute) return absolute
+  return path.join(await canonical(parent, false), path.basename(absolute))
 }
 
 function within(item: string, parent: string) {

@@ -1,7 +1,71 @@
 import { describe, expect, test } from "bun:test"
 import { Sandbox } from "@/sandbox/sandbox"
+import fs from "fs/promises"
+import path from "path"
+import { tmpdir } from "../fixture/fixture"
 
 describe("sandbox", () => {
+  test("filesystem policy is fail-closed, canonical, and preserves the writable workspace", async () => {
+    await using root = await tmpdir()
+    const workspace = path.join(root.path, "project")
+    const readonly = path.join(root.path, "shared")
+    const outside = path.join(root.path, "outside")
+    const denied = path.join(workspace, "secrets")
+    await Promise.all([workspace, readonly, outside, denied].map((item) => fs.mkdir(item, { recursive: true })))
+    await Promise.all([
+      fs.writeFile(path.join(workspace, "inside.txt"), "inside"),
+      fs.writeFile(path.join(readonly, "shared.txt"), "shared"),
+      fs.writeFile(path.join(outside, "secret.txt"), "secret"),
+      fs.writeFile(path.join(denied, "key.txt"), "key"),
+    ])
+
+    const policy = await Sandbox.resolveFilesystemPolicy(
+      { enabled: true, filesystem: { read: [readonly], deny: [denied] } },
+      workspace,
+    )
+
+    expect(await policy.canRead(path.join(workspace, "inside.txt"))).toBe(true)
+    expect(await policy.canWrite(path.join(workspace, "new.txt"))).toBe(true)
+    expect(await policy.canRead(path.join(readonly, "shared.txt"))).toBe(true)
+    expect(await policy.canWrite(path.join(readonly, "shared.txt"))).toBe(false)
+    expect(await policy.canRead(path.join(outside, "secret.txt"))).toBe(false)
+    expect(await policy.canRead(path.join(workspace, "..", "outside", "secret.txt"))).toBe(false)
+    expect(await policy.canRead(path.join(denied, "key.txt"))).toBe(false)
+    await expect(policy.assertReadTree(workspace)).rejects.toBeInstanceOf(Sandbox.FilesystemDeniedError)
+  })
+
+  test("filesystem policy rejects file and directory symlink escapes for reads and new writes", async () => {
+    if (process.platform === "win32") return
+    await using root = await tmpdir()
+    const workspace = path.join(root.path, "project")
+    const outside = path.join(root.path, "outside")
+    await Promise.all([workspace, outside].map((item) => fs.mkdir(item, { recursive: true })))
+    await fs.writeFile(path.join(outside, "secret.txt"), "secret")
+    await fs.symlink(path.join(outside, "secret.txt"), path.join(workspace, "escape-file"))
+    await fs.symlink(outside, path.join(workspace, "escape-dir"))
+    const policy = await Sandbox.resolveFilesystemPolicy(true, workspace)
+
+    await expect(policy.assertRead(path.join(workspace, "escape-file"))).rejects.toBeInstanceOf(
+      Sandbox.FilesystemDeniedError,
+    )
+    await expect(policy.assertRead(path.join(workspace, "escape-dir", "secret.txt"))).rejects.toBeInstanceOf(
+      Sandbox.FilesystemDeniedError,
+    )
+    await expect(policy.assertWrite(path.join(workspace, "escape-dir", "new.txt"))).rejects.toBeInstanceOf(
+      Sandbox.FilesystemDeniedError,
+    )
+  })
+
+  test("disabled filesystem policy preserves unrestricted host path behavior", async () => {
+    await using root = await tmpdir()
+    const workspace = path.join(root.path, "project")
+    const outside = path.join(root.path, "outside.txt")
+    await fs.mkdir(workspace)
+    const policy = await Sandbox.resolveFilesystemPolicy(false, workspace)
+    expect(await policy.canRead(outside)).toBe(true)
+    expect(await policy.canWrite(outside)).toBe(true)
+  })
+
   test("disabled preserves the regular command", async () => {
     const command = await Sandbox.command({
       config: false,
@@ -117,6 +181,30 @@ describe("sandbox", () => {
     })
     expect(await processHandle.exited).not.toBe(0)
     processHandle.unref()
+  })
+
+  test("manual regression: shell cannot read a sibling outside the workspace", async () => {
+    if (process.platform !== "linux" || !Bun.which("bwrap")) return
+    await using root = await tmpdir()
+    const workspace = path.join(root.path, "project")
+    const outside = path.join(root.path, "outside")
+    await Promise.all([workspace, outside].map((item) => fs.mkdir(item)))
+    await fs.writeFile(path.join(workspace, "inside.txt"), "inside")
+    await fs.writeFile(path.join(outside, "secret.txt"), "secret")
+    const command = await Sandbox.command({
+      config: { enabled: true },
+      shell: "/bin/sh",
+      command: "cat ../outside/secret.txt",
+      cwd: workspace,
+      env: { PATH: process.env.PATH },
+    })
+    const handle = Bun.spawn([command.command, ...command.args], {
+      cwd: command.options.cwd,
+      env: command.options.env,
+      stdout: "ignore",
+      stderr: "ignore",
+    })
+    expect(await handle.exited).not.toBe(0)
   })
 
   test("sandbox exposes essential host runtime files read-only", async () => {
