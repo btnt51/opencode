@@ -36,4 +36,26 @@ describe("sandbox network config", () => {
     })
     expect(Schema.decodeUnknownSync(ConfigV1.Info)({ sandbox: { network: true } }).sandbox).toEqual({ network: true })
   })
+
+  test("accepts restricted tool destinations and requires explicit ports", () => {
+    const config = Schema.decodeUnknownSync(ConfigV1.Info)({
+      sandbox: {
+        network: {
+          tools: {
+            mode: "restricted",
+            allow: [
+              { host: "github.com", ports: [443] },
+              { host: "git.corp.example", ports: [443], includeSubdomains: true, private: true },
+            ],
+          },
+        },
+      },
+    })
+    expect(config.sandbox?.network).toMatchObject({ tools: { mode: "restricted" } })
+    expect(() =>
+      Schema.decodeUnknownSync(ConfigV1.Info)({
+        sandbox: { network: { tools: { mode: "restricted", allow: [{ host: "github.com", ports: [] }] } } },
+      }),
+    ).toThrow()
+  })
 })

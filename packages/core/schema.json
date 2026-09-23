@@ -854,12 +854,63 @@
                       "type": "object",
                       "properties": {
                         "tools": {
-                          "type": "string",
-                          "enum": [
-                            "none",
-                            "full"
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "none",
+                                "full"
+                              ]
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "mode": {
+                                  "type": "string",
+                                  "enum": [
+                                    "restricted"
+                                  ]
+                                },
+                                "allow": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "properties": {
+                                      "host": {
+                                        "type": "string"
+                                      },
+                                      "ports": {
+                                        "minItems": 1,
+                                        "type": "array",
+                                        "items": {
+                                          "minimum": 1,
+                                          "maximum": 65535,
+                                          "type": "integer"
+                                        }
+                                      },
+                                      "includeSubdomains": {
+                                        "type": "boolean"
+                                      },
+                                      "private": {
+                                        "type": "boolean"
+                                      }
+                                    },
+                                    "required": [
+                                      "host",
+                                      "ports"
+                                    ],
+                                    "additionalProperties": false
+                                  }
+                                }
+                              },
+                              "required": [
+                                "mode",
+                                "allow"
+                              ],
+                              "additionalProperties": false
+                            }
                           ],
-                          "description": "Network access for agent-controlled shell commands. Defaults to none."
+                          "description": "Network access for agent-controlled shell commands. Defaults to none; restricted allows only listed HTTP/HTTPS hostname and port destinations."
                         },
                         "provider": {
                           "type": "string",
