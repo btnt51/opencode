@@ -1,10 +1,36 @@
 import { describe, expect, test } from "bun:test"
 import { Sandbox } from "@/sandbox/sandbox"
+import { SandboxNetwork } from "@/sandbox/network"
 import fs from "fs/promises"
 import path from "path"
 import { tmpdir } from "../fixture/fixture"
 
 describe("sandbox", () => {
+  test("restricted rules normalize names and use DNS label boundaries", () => {
+    const rules = [
+      SandboxNetwork.normalizeRule({ host: "GitHubUserContent.COM.", ports: [443], includeSubdomains: true }),
+    ]
+    expect(SandboxNetwork.allowed(rules, "raw.githubusercontent.com", 443)).toBeDefined()
+    expect(SandboxNetwork.allowed(rules, "githubusercontent.com", 443)).toBeDefined()
+    expect(SandboxNetwork.allowed(rules, "evilgithubusercontent.com", 443)).toBeUndefined()
+    expect(SandboxNetwork.allowed(rules, "raw.githubusercontent.com", 80)).toBeUndefined()
+  })
+
+  test("restricted address policy rejects local, private, special-use, and mapped addresses", () => {
+    expect(SandboxNetwork.publicAddress("8.8.8.8")).toBe(true)
+    for (const address of [
+      "127.0.0.1",
+      "10.0.0.1",
+      "169.254.169.254",
+      "192.168.1.1",
+      "::1",
+      "fe80::1",
+      "::ffff:127.0.0.1",
+    ]) {
+      expect(SandboxNetwork.publicAddress(address)).toBe(false)
+    }
+  })
+
   test("filesystem policy is fail-closed, canonical, and preserves the writable workspace", async () => {
     await using root = await tmpdir()
     const workspace = path.join(root.path, "project")
@@ -125,6 +151,11 @@ describe("sandbox", () => {
     expect(
       Sandbox.toolNetwork({ network: { tools: "none", provider: "configured", mcp: { allow: ["company"] } } }),
     ).toBe("none")
+    expect(
+      Sandbox.toolNetwork({
+        network: { tools: { mode: "restricted", allow: [{ host: "github.com", ports: [443] }] } },
+      }),
+    ).toEqual({ mode: "restricted", allow: [{ host: "github.com", ports: [443] }] })
     expect(Sandbox.providerNetwork({ network: { provider: "disabled" } })).toBe("disabled")
     expect(Sandbox.mcpAllowed({ network: { mcp: { allow: ["company"] } } }, "company")).toBe(true)
     expect(Sandbox.mcpAllowed({ network: { mcp: { allow: ["company"] } } }, "other")).toBe(false)
@@ -181,6 +212,112 @@ describe("sandbox", () => {
     })
     expect(await processHandle.exited).not.toBe(0)
     processHandle.unref()
+  })
+
+  test("restricted network permits only proxy-authorized destinations and blocks direct sockets", async () => {
+    if (
+      process.platform !== "linux" ||
+      !Bun.which("bwrap") ||
+      !Bun.which("curl") ||
+      !Bun.which("python3") ||
+      !Bun.which("openssl")
+    )
+      return
+    await using root = await tmpdir()
+    const cert = path.join(root.path, "cert.pem")
+    const key = path.join(root.path, "key.pem")
+    const certificate = Bun.spawnSync([
+      "openssl",
+      "req",
+      "-x509",
+      "-newkey",
+      "rsa:2048",
+      "-nodes",
+      "-keyout",
+      key,
+      "-out",
+      cert,
+      "-days",
+      "1",
+      "-subj",
+      "/CN=localhost",
+      "-addext",
+      "subjectAltName=DNS:localhost,IP:127.0.0.1",
+    ])
+    expect(certificate.exitCode).toBe(0)
+    const source = path.join(root.path, "source")
+    const repository = path.join(root.path, "repo.git")
+    await fs.mkdir(source)
+    expect(Bun.spawnSync(["git", "init", "-q"], { cwd: source }).exitCode).toBe(0)
+    await fs.writeFile(path.join(source, "README"), "fixture")
+    expect(
+      Bun.spawnSync(["git", "-c", "user.name=Test", "-c", "user.email=test@example.test", "add", "README"], {
+        cwd: source,
+      }).exitCode,
+    ).toBe(0)
+    expect(
+      Bun.spawnSync(["git", "-c", "user.name=Test", "-c", "user.email=test@example.test", "commit", "-qm", "fixture"], {
+        cwd: source,
+      }).exitCode,
+    ).toBe(0)
+    expect(Bun.spawnSync(["git", "clone", "-q", "--bare", source, repository]).exitCode).toBe(0)
+    expect(Bun.spawnSync(["git", "update-server-info"], { cwd: repository }).exitCode).toBe(0)
+    const server = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      tls: { cert: Bun.file(cert), key: Bun.file(key) },
+      async fetch(request) {
+        const pathname = new URL(request.url).pathname
+        if (pathname === "/redirect") {
+          return Response.redirect(`https://127.0.0.1:${server.port}/target`)
+        }
+        if (pathname.startsWith("/repo.git/")) {
+          const file = Bun.file(path.join(repository, pathname.slice("/repo.git/".length)))
+          if (await file.exists()) return new Response(file)
+          return new Response("missing", { status: 404 })
+        }
+        return new Response("allowed")
+      },
+    })
+    const run = async (commandText: string) => {
+      const command = await Sandbox.command({
+        config: {
+          network: {
+            tools: { mode: "restricted", allow: [{ host: "localhost", ports: [server.port], private: true }] },
+          },
+        },
+        shell: "/bin/sh",
+        command: commandText,
+        cwd: root.path,
+        env: { PATH: process.env.PATH },
+      })
+      const handle = Bun.spawn([command.command, ...command.args], {
+        cwd: command.options.cwd,
+        env: command.options.env,
+        stdout: "pipe",
+        stderr: "pipe",
+      })
+      const output = await new Response(handle.stdout).text()
+      const error = await new Response(handle.stderr).text()
+      return { code: await handle.exited, output, error }
+    }
+
+    try {
+      const curl = `curl --cacert ${cert} --fail --silent`
+      expect(await run(`${curl} https://localhost:${server.port}/`)).toMatchObject({ code: 0, output: "allowed" })
+      expect((await run(`${curl} https://localhost:${server.port + 1}/`)).code).not.toBe(0)
+      expect((await run(`${curl} https://127.0.0.1:${server.port}/`)).code).not.toBe(0)
+      expect((await run(`${curl} --location https://localhost:${server.port}/redirect`)).code).not.toBe(0)
+      expect((await run(`${curl} --noproxy '*' https://localhost:${server.port}/`)).code).not.toBe(0)
+      expect(
+        await run(`git -c http.sslCAInfo=${cert} ls-remote https://localhost:${server.port}/repo.git HEAD`),
+      ).toMatchObject({ code: 0 })
+      expect(
+        (await run(`python3 -c 'import socket; socket.create_connection(("127.0.0.1", ${server.port}), 1)'`)).code,
+      ).not.toBe(0)
+    } finally {
+      server.stop(true)
+    }
   })
 
   test("manual regression: shell cannot read a sibling outside the workspace", async () => {

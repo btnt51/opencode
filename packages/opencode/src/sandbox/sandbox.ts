@@ -3,6 +3,10 @@ export * as Sandbox from "./sandbox"
 import { ChildProcess } from "effect/unstable/process"
 import fs from "fs/promises"
 import path from "path"
+import { SandboxNetwork } from "./network"
+
+export type NetworkRule = SandboxNetwork.Rule
+export type ToolNetwork = "none" | "full" | SandboxNetwork.Policy
 
 export type Config =
   | boolean
@@ -12,7 +16,7 @@ export type Config =
       network?:
         | boolean
         | {
-            tools?: "none" | "full"
+            tools?: ToolNetwork
             provider?: "configured" | "disabled"
             mcp?: { allow: string[] }
           }
@@ -137,7 +141,8 @@ export async function command(input: {
   const cwd = policy.cwd
 
   const args = ["--die-with-parent", "--new-session", "--unshare-all"]
-  if (toolNetwork(input.config) === "full") args.push("--share-net")
+  const network = toolNetwork(input.config)
+  if (network === "full") args.push("--share-net")
   args.push("--dev", "/dev", "--tmpfs", "/tmp")
   for (const item of SYSTEM_PATHS) {
     if (
@@ -167,10 +172,40 @@ export async function command(input: {
     )
     args.push(directory ? "--tmpfs" : "--ro-bind", directory ? item : "/dev/null", ...(directory ? [] : [item]))
   }
-  args.push("--chdir", cwd, "--", input.shell, "-c", input.command)
+  const restricted = typeof network === "object" ? await restrictedNetwork(network) : undefined
+  if (restricted) {
+    args.push("--dir", "/run", "--ro-bind", restricted.directory, "/run/opencode-network")
+    if (!SYSTEM_PATHS.some((item) => within(restricted.runtime, item))) {
+      const parents = path
+        .dirname(restricted.runtime)
+        .split(path.sep)
+        .slice(1)
+        .map((_, index, items) => path.join(path.sep, ...items.slice(0, index + 1)))
+      for (const parent of parents) args.push("--dir", parent)
+      args.push("--ro-bind", restricted.runtime, restricted.runtime)
+    }
+  }
+  args.push(
+    "--chdir",
+    restricted ? "/tmp" : cwd,
+    "--",
+    ...(restricted
+      ? [
+          restricted.runtime,
+          "/run/opencode-network/relay.py",
+          "/run/opencode-network/broker.sock",
+          input.shell,
+          input.command,
+          cwd,
+        ]
+      : [input.shell, "-c", input.command]),
+  )
 
   return ChildProcess.make(executable, args, {
-    env: config.environment === "all" ? env : safeEnvironment(env),
+    env: {
+      ...(config.environment === "all" ? env : safeEnvironment(env)),
+      ...(restricted ? SandboxNetwork.environment() : {}),
+    },
     stdin: "ignore",
     detached: true,
   })
@@ -235,6 +270,25 @@ export function toolNetwork(config?: Config) {
   if (typeof config !== "object") return config === true ? ("none" as const) : ("full" as const)
   if (typeof config.network === "boolean") return config.network ? ("full" as const) : ("none" as const)
   return config.network?.tools ?? "none"
+}
+
+async function restrictedNetwork(policy: SandboxNetwork.Policy) {
+  const runtime = await fs.access("/usr/bin/python3").then(
+    () => "/usr/bin/python3",
+    () => Bun.which("python3"),
+  )
+  if (!runtime) throw new UnavailableError("restricted networking requires python3 for the isolated relay")
+  const result = await SandboxNetwork.broker(policy).catch((error) => {
+    throw new UnavailableError(
+      `restricted network broker could not start: ${error instanceof Error ? error.message : String(error)}`,
+    )
+  })
+  await fs.writeFile(path.join(result.directory, "relay.py"), SandboxNetwork.relay, { mode: 0o500 }).catch((error) => {
+    throw new UnavailableError(
+      `restricted network relay could not be installed: ${error instanceof Error ? error.message : String(error)}`,
+    )
+  })
+  return { ...result, runtime }
 }
 
 export function providerNetwork(config?: Config) {

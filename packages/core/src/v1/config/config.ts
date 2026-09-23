@@ -30,6 +30,23 @@ const LogLevelRef = Schema.Literals(["DEBUG", "INFO", "WARN", "ERROR"]).annotate
   description: "Log level",
 })
 
+const SandboxNetworkRule = Schema.Struct({
+  host: Schema.String,
+  ports: Schema.mutable(Schema.Array(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 65535 })))).check(
+    Schema.isMinLength(1),
+  ),
+  includeSubdomains: Schema.optional(Schema.Boolean),
+  private: Schema.optional(Schema.Boolean),
+})
+
+const SandboxToolNetwork = Schema.Union([
+  Schema.Literals(["none", "full"]),
+  Schema.Struct({
+    mode: Schema.Literal("restricted"),
+    allow: Schema.mutable(Schema.Array(SandboxNetworkRule)),
+  }),
+])
+
 export const Info = Schema.Struct({
   $schema: Schema.optional(Schema.String).annotate({
     description: "JSON schema reference for configuration validation",
@@ -51,8 +68,9 @@ export const Info = Schema.Struct({
           Schema.Union([
             Schema.Boolean,
             Schema.Struct({
-              tools: Schema.optional(Schema.Literals(["none", "full"])).annotate({
-                description: "Network access for agent-controlled shell commands. Defaults to none.",
+              tools: Schema.optional(SandboxToolNetwork).annotate({
+                description:
+                  "Network access for agent-controlled shell commands. Defaults to none; restricted allows only listed HTTP/HTTPS hostname and port destinations.",
               }),
               provider: Schema.optional(Schema.Literals(["configured", "disabled"])).annotate({
                 description: "Allow the trusted OpenCode process to contact configured model providers.",
