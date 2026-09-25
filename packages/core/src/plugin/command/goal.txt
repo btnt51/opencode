@@ -1,0 +1,5 @@
+Treat the following text as the goal for this session:
+
+$ARGUMENTS
+
+Work toward this goal until it is complete. Before acting, inspect the relevant code and constraints. Keep the implementation focused, preserve unrelated user changes, and validate the result with the strongest checks available in the environment. If the goal cannot be completed, state the concrete blocker and distinguish completed work from unverified assumptions.
