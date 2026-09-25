@@ -17,6 +17,7 @@ import { location } from "../fixture/location"
 import { testEffect } from "../lib/effect"
 import { host } from "./host"
 import PROMPT_INITIALIZE from "../../src/plugin/command/initialize.txt"
+import PROMPT_GOAL from "../../src/plugin/command/goal.txt"
 import PROMPT_REVIEW from "../../src/plugin/command/review.txt"
 
 const directory = AbsolutePath.make("/repo/packages/app")
@@ -33,7 +34,7 @@ const it = testEffect(
 )
 
 describe("CommandPlugin.Plugin", () => {
-  it.effect("registers built-in init and review commands", () =>
+  it.effect("registers built-in goal, init, and review commands", () =>
     Effect.gen(function* () {
       const command = yield* Command.Service
       const prompts: {
@@ -74,9 +75,21 @@ describe("CommandPlugin.Plugin", () => {
         name: "init",
         description: "guided AGENTS.md setup",
       })
+      expect(yield* command.get("goal")).toMatchObject({
+        name: "goal",
+        description: "set a goal for the current session",
+      })
       expect(yield* command.get("review")).toMatchObject({
         name: "review",
         description: "review changes [commit|branch|pr], defaults to uncommitted",
+      })
+      yield* command.execute({
+        name: "goal",
+        invocation: {
+          sessionID: Session.ID.make("ses_test"),
+          prompt: { text: "ship the migration", files: [{ uri: "file:///tmp/requirements.md" }] },
+          delivery: "queue",
+        },
       })
       yield* command.execute({
         name: "init",
@@ -111,6 +124,11 @@ describe("CommandPlugin.Plugin", () => {
         },
       })
       expect(prompts).toEqual([
+        {
+          text: PROMPT_GOAL.replaceAll("$ARGUMENTS", "ship the migration"),
+          files: [{ uri: "file:///tmp/requirements.md" }],
+          delivery: "queue",
+        },
         {
           text: PROMPT_INITIALIZE.replace("${path}", project).replaceAll("$ARGUMENTS", "extra context"),
           files: [{ uri: "file:///tmp/context.md" }],
