@@ -529,3 +529,33 @@ headers, and model variants.
 Provider `settings.transport: "websocket"` selects its session WebSocket.
 
 See the [providers guide](/providers) for credentials, custom endpoints, provider packages, the WebSocket transport, and model configuration.
+
+### Telegram notification proxy
+
+Each named Telegram notification destination can select its own connection policy. Omitting `proxy` preserves the
+direct behavior; `direct` also forces a direct connection even when proxy environment variables are present.
+
+```jsonc
+{
+  "notification": {
+    "personal": {
+      "type": "telegram",
+      "botToken": "{env:TELEGRAM_BOT_TOKEN}",
+      "chatId": "{env:TELEGRAM_CHAT_ID}",
+      "proxy": { "mode": "url", "url": "{env:OPENCODE_TELEGRAM_PROXY}" },
+    },
+  },
+}
+```
+
+Use `{ "mode": "environment" }` to read the backend process environment. HTTPS destinations check non-empty
+`https_proxy`, `HTTPS_PROXY`, `all_proxy`, then `ALL_PROXY`; HTTP destinations use `http_proxy`, `HTTP_PROXY`,
+`all_proxy`, then `ALL_PROXY`. Lowercase `no_proxy` takes precedence over `NO_PROXY`, with an empty lowercase value
+falling back to uppercase. Entries may be separated by commas or whitespace and may be `*`, exact hosts, `.domain`
+or `*.domain` subdomain suffixes, and optionally a matching port. CIDR, PAC, and native OS proxy settings are not
+supported.
+
+Environment settings are read on the trusted notification backend. Consequently, `127.0.0.1` refers to the machine
+running that backend, not the user's laptop or a remote target workspace. URL mode accepts only `http://` and
+`https://` proxies, ignores ambient `NO_PROXY`, and fails delivery rather than falling back to direct networking.
+Proxy credentials remain separate from Telegram credentials and from restricted agent egress configuration.

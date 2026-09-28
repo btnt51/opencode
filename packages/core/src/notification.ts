@@ -2,6 +2,9 @@ export * as Notification from "./notification.js"
 
 import { ConfigNotification } from "@opencode/schema/config/notification"
 import type { Session } from "@opencode/schema/session"
+import { NodeHttpClient } from "@effect/platform-node"
+import { HttpProxyAgent } from "http-proxy-agent"
+import { HttpsProxyAgent } from "https-proxy-agent"
 import { Duration, Effect, Schema } from "effect"
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http"
 
@@ -54,12 +57,6 @@ export function destinations(
       )
       return []
     }
-    if (item.proxy !== undefined) {
-      Effect.runFork(
-        Effect.logWarning("notification destination disabled", { destination: name, reason: "proxy is not supported" }),
-      )
-      return []
-    }
     if (enabled(item.events?.retry, false))
       Effect.runFork(
         Effect.logWarning("notification retry event is unsupported", {
@@ -97,7 +94,13 @@ function telegram(name: string, config: ConfigNotification.Telegram, http: HttpC
           text: format(message),
         }),
       )
-      const response = yield* HttpClient.withScope(http).execute(request)
+      const selected = yield* Effect.try({
+        try: () => proxy(endpoint, config.proxy),
+        catch: () => new TransportError({ destination: name, reason: "invalid proxy configuration" }),
+      })
+      const response = yield* (selected ? proxyClient(selected) : Effect.succeed(http)).pipe(
+        Effect.flatMap((client) => HttpClient.withScope(client).execute(request)),
+      )
       const body = yield* HttpClientResponse.schemaBodyJson(TelegramResponse)(response)
       if (response.status === 429 && retry) {
         yield* Effect.sleep(Duration.seconds(Math.min(5, Math.max(1, body.parameters?.retry_after ?? 1))))
@@ -123,6 +126,70 @@ function telegram(name: string, config: ConfigNotification.Telegram, http: HttpC
       ),
     )
   return { send: (message) => send(message) }
+}
+
+type Environment = Readonly<Record<string, string | undefined>>
+
+export function environmentProxy(destination: string, environment: Environment = process.env) {
+  const url = new URL(destination)
+  if (bypassesProxy(url, environmentValue(environment, "no_proxy", "NO_PROXY"))) return undefined
+  const names = url.protocol === "https:" ? ["https_proxy", "HTTPS_PROXY"] : ["http_proxy", "HTTP_PROXY"]
+  return [...names, "all_proxy", "ALL_PROXY"].map((name) => environment[name]?.trim()).find(Boolean)
+}
+
+function proxy(destination: string, config: ConfigNotification.Proxy | undefined) {
+  if (!config || config.mode === "direct") return undefined
+  const selected = config.mode === "url" ? config.url : environmentProxy(destination)
+  if (!selected) return undefined
+  if (!URL.canParse(selected)) throw new Error("notification proxy requires a valid http:// or https:// URL")
+  const parsed = new URL(selected)
+  if ((parsed.protocol !== "http:" && parsed.protocol !== "https:") || !parsed.hostname)
+    throw new Error("notification proxy requires a valid http:// or https:// URL")
+  return parsed
+}
+
+function proxyClient(proxy: URL) {
+  return Effect.acquireRelease(
+    Effect.sync(() => {
+      const value = proxy.toString()
+      return {
+        http: new HttpProxyAgent(value),
+        https: new HttpsProxyAgent(value),
+      }
+    }),
+    (agents) =>
+      Effect.sync(() => {
+        agents.http.destroy()
+        agents.https.destroy()
+      }),
+  ).pipe(
+    Effect.flatMap((agents) =>
+      NodeHttpClient.makeNodeHttp.pipe(Effect.provideService(NodeHttpClient.HttpAgent, agents)),
+    ),
+  )
+}
+
+function environmentValue(environment: Environment, lower: string, upper: string) {
+  return environment[lower]?.trim() || environment[upper]?.trim() || undefined
+}
+
+function bypassesProxy(url: URL, value: string | undefined) {
+  if (!value) return false
+  const hostname = url.hostname.toLowerCase()
+  const port = url.port || (url.protocol === "https:" ? "443" : "80")
+  return value.split(/[\s,]+/).some((entry) => {
+    if (!entry) return false
+    if (entry === "*") return true
+    const bracketed = entry.startsWith("[") ? entry.indexOf("]") : -1
+    const separator = bracketed >= 0 ? bracketed + 1 : entry.lastIndexOf(":")
+    const hasPort = separator >= 0 && entry[separator] === ":" && /^\d+$/.test(entry.slice(separator + 1))
+    if (hasPort && entry.slice(separator + 1) !== port) return false
+    const raw = hasPort ? entry.slice(0, separator) : entry
+    const host = raw.replace(/^\[|\]$/g, "").toLowerCase()
+    if (host.startsWith("*.")) return hostname.endsWith(host.slice(1)) && hostname !== host.slice(2)
+    if (host.startsWith(".")) return hostname.endsWith(host) && hostname !== host.slice(1)
+    return hostname === host
+  })
 }
 
 function format(message: Message) {
