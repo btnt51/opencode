@@ -12,7 +12,11 @@ export interface Filesystem extends Schema.Schema.Type<typeof Filesystem> {}
 
 export const Network = Schema.Union([
   Schema.Boolean,
-  Schema.Struct({ tools: Schema.Literals(["none", "full"]).pipe(optional) }),
+  Schema.Struct({
+    tools: Schema.Literals(["none", "full"]).pipe(optional),
+    provider: Schema.Literals(["configured", "disabled"]).pipe(optional),
+    mcp: Schema.Struct({ allow: Schema.Array(Schema.String).pipe(optional) }).pipe(optional),
+  }),
 ])
 export type Network = typeof Network.Type
 

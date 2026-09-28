@@ -15,8 +15,23 @@ describe("Config.Entry", () => {
       sandbox: {
         enabled: true,
         filesystem: { read: [], write: [], deny: [] },
-        network: { tools: "none" as const },
+        network: {
+          tools: "none" as const,
+          provider: "configured" as const,
+          mcp: { allow: ["local-tools", "company"] },
+        },
         environment: "safe" as const,
+      },
+    }
+    expect(Schema.encodeSync(Config.Info)(Schema.decodeUnknownSync(Config.Info)(input))).toEqual(input)
+  })
+
+  test("round-trips local MCP sandbox configuration", () => {
+    const input = {
+      mcp: {
+        servers: {
+          local: { type: "local" as const, command: ["server"], sandbox: { network: "none" as const } },
+        },
       },
     }
     expect(Schema.encodeSync(Config.Info)(Schema.decodeUnknownSync(Config.Info)(input))).toEqual(input)

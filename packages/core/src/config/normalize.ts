@@ -77,7 +77,7 @@ export function normalize(input: unknown): Result {
     if (isRecord(input.sandbox.network))
       unsupported.push(
         ...Object.keys(input.sandbox.network)
-          .filter((key) => key !== "tools")
+          .filter((key) => !["tools", "provider", "mcp"].includes(key))
           .map((key) => `network.${key}`),
       )
     if (isRecord(input.sandbox.filesystem))

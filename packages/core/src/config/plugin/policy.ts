@@ -34,7 +34,20 @@ export const Plugin = define({
     }
     yield* ctx.provider.transform((providers) => {
       const current = policies()
+      const providerDisabled = loaded.entries.some(
+        (entry) =>
+          entry.type === "document" &&
+          entry.info.sandbox !== true &&
+          entry.info.sandbox !== false &&
+          entry.info.sandbox?.enabled !== false &&
+          typeof entry.info.sandbox?.network === "object" &&
+          entry.info.sandbox.network.provider === "disabled",
+      )
       for (const record of providers.list()) {
+        if (providerDisabled) {
+          providers.remove(record.provider.id)
+          continue
+        }
         const policy = current.findLast(
           (policy) => policy.action === "provider.use" && Wildcard.match(record.provider.id, policy.resource),
         )
