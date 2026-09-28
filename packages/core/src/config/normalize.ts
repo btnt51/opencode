@@ -80,6 +80,21 @@ export function normalize(input: unknown): Result {
           .filter((key) => !["tools", "provider", "mcp"].includes(key))
           .map((key) => `network.${key}`),
       )
+    if (isRecord(input.sandbox.network) && isRecord(input.sandbox.network.tools)) {
+      const toolKeys = Object.keys(input.sandbox.network.tools)
+        .filter((key) => !["mode", "allow"].includes(key))
+        .map((key) => `network.tools.${key}`)
+      unsupported.push(...toolKeys)
+      if (Array.isArray(input.sandbox.network.tools.allow))
+        input.sandbox.network.tools.allow.forEach((rule, index) => {
+          if (!isRecord(rule)) return
+          unsupported.push(
+            ...Object.keys(rule)
+              .filter((key) => !["host", "ports", "includeSubdomains", "private"].includes(key))
+              .map((key) => `network.tools.allow.${index}.${key}`),
+          )
+        })
+    }
     if (isRecord(input.sandbox.filesystem))
       unsupported.push(
         ...Object.keys(input.sandbox.filesystem)

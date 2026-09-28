@@ -10,10 +10,27 @@ export const Filesystem = Schema.Struct({
 })
 export interface Filesystem extends Schema.Schema.Type<typeof Filesystem> {}
 
+export const NetworkRule = Schema.Struct({
+  host: Schema.String,
+  ports: Schema.NonEmptyArray(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 65535 }))),
+  includeSubdomains: Schema.Boolean.pipe(optional),
+  private: Schema.Boolean.pipe(optional),
+})
+export type NetworkRule = typeof NetworkRule.Type
+
+export const ToolNetwork = Schema.Union([
+  Schema.Literals(["none", "full"]),
+  Schema.Struct({
+    mode: Schema.Literal("restricted"),
+    allow: Schema.Array(NetworkRule),
+  }),
+])
+export type ToolNetwork = typeof ToolNetwork.Type
+
 export const Network = Schema.Union([
   Schema.Boolean,
   Schema.Struct({
-    tools: Schema.Literals(["none", "full"]).pipe(optional),
+    tools: ToolNetwork.pipe(optional),
     provider: Schema.Literals(["configured", "disabled"]).pipe(optional),
     mcp: Schema.Struct({ allow: Schema.Array(Schema.String).pipe(optional) }).pipe(optional),
   }),
