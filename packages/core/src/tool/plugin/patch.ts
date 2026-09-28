@@ -116,6 +116,7 @@ export const Plugin = {
               const updates = new Map<string, string>()
               const resolveTarget = Effect.fnUntraced(function* (value: string) {
                 const target = yield* access.resolve({ path: value, kind: "file" })
+                yield* access.authorizeWrite(target)
                 if (!target.externalDirectory) return target
                 yield* access.authorizeExternal([target], context, {
                   filepath: target.absolute,

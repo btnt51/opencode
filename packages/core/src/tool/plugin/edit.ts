@@ -144,6 +144,7 @@ export const Plugin = {
               }
 
               const target = yield* access.resolve({ path: input.path, kind: "file" })
+              yield* access.authorizeWrite(target)
               yield* access.authorizeExternal([target], context)
 
               const original = yield* FileMutation.readText(environment.files, target.absolute).pipe(

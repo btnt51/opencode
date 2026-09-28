@@ -21,6 +21,7 @@ import { SessionSchema } from "./session/schema.js"
 import { Config } from "./config.js"
 import { ToolOutput } from "./tool-output.js"
 import { ShellResult } from "./shell/result.js"
+import { Sandbox } from "./sandbox.js"
 
 export class NotFoundError extends Schema.TaggedError<NotFoundError>()("Shell.NotFoundError", {
   id: Shell.ID,
@@ -123,6 +124,7 @@ const layer = () =>
       const global = yield* Global.Service
       const shell = yield* ShellSelect.Service
       const environment = yield* Environment.Service
+      const sandbox = yield* Sandbox.Service
       const hooks = yield* PluginHooks.Service
       const environments = yield* SessionEnvironment.Service
       const config = yield* Config.Service
@@ -292,8 +294,8 @@ const layer = () =>
         runFork(
           Effect.scoped(
             Effect.gen(function* () {
-              const handle = yield* environment.spawner
-                .spawn(
+              const sandboxed = yield* sandbox
+                .command(
                   ChildProcess.make(invocation.shell, args, {
                     cwd: invocation.cwd,
                     env: invocation.env,
@@ -302,6 +304,11 @@ const layer = () =>
                     forceKillAfter: Duration.seconds(3),
                   }),
                 )
+                .pipe(
+                  Effect.mapError((cause) => new AppProcess.AppProcessError({ command: invocation.command, cause })),
+                )
+              const handle = yield* environment.spawner
+                .spawn(sandboxed)
                 .pipe(
                   Effect.mapError((cause) => new AppProcess.AppProcessError({ command: invocation.command, cause })),
                 )
@@ -434,6 +441,7 @@ export const node = makeLocationNode({
     PluginHooks.node,
     SessionEnvironment.node,
     Config.node,
+    Sandbox.node,
     cleanupNode,
   ],
 })

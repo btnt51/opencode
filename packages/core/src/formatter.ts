@@ -8,6 +8,7 @@ import { AppProcess } from "@opencode/util/process"
 import { Location } from "./location.js"
 import type { Info } from "./formatter/builtins.js"
 import { State } from "./state.js"
+import { Sandbox } from "./sandbox.js"
 
 type Data = {
   formatters: Info[]
@@ -29,6 +30,7 @@ const layer = Layer.effect(
   Effect.gen(function* () {
     const location = yield* Location.Service
     const processes = yield* AppProcess.Service
+    const sandbox = yield* Sandbox.Service
     const commands = new WeakMap<Info, string[] | false>()
     const state = State.create<Data, Editor>({
       name: "formatter",
@@ -62,8 +64,8 @@ const layer = Layer.effect(
         if (enabled === false) continue
         const cmd = enabled.map((argument) => argument.replace("$FILE", filepath))
         yield* Effect.logInfo("formatting file", { file: filepath, command: cmd })
-        const result = yield* processes
-          .run(
+        const result = yield* sandbox
+          .command(
             ChildProcess.make(cmd[0], cmd.slice(1), {
               cwd: location.directory,
               env: formatter.environment,
@@ -73,6 +75,7 @@ const layer = Layer.effect(
               stderr: "ignore",
             }),
           )
+          .pipe(Effect.flatMap(processes.run))
           .pipe(
             Effect.catch((error) =>
               Effect.logError("failed to format file", {
@@ -100,5 +103,5 @@ const layer = Layer.effect(
 export const node = makeLocationNode({
   service: Service,
   layer,
-  deps: [Location.node, AppProcess.node],
+  deps: [Location.node, AppProcess.node, Sandbox.node],
 })

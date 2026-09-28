@@ -62,6 +62,7 @@ import { Session } from "../session.js"
 import { SessionCompaction } from "../session/compaction.js"
 import { SessionInstructions } from "../session/instructions.js"
 import { Shell } from "../shell.js"
+import { Sandbox } from "../sandbox.js"
 import { ShellSelect } from "../shell/select.js"
 import { Snapshot } from "../snapshot.js"
 import { Skill } from "../skill.js"
@@ -143,6 +144,7 @@ const services = [
   SessionCompaction.Service,
   SessionInstructions.Service,
   Shell.Service,
+  Sandbox.Service,
   ShellSelect.Service,
   Snapshot.Service,
   Skill.Service,
@@ -196,6 +198,7 @@ export const requirements = LayerNode.group([
   SessionCompaction.node,
   SessionInstructions.node,
   Shell.node,
+  Sandbox.node,
   ShellSelect.node,
   Snapshot.node,
   Skill.node,

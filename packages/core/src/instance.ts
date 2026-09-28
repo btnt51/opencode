@@ -52,6 +52,7 @@ import { ReadToolFileSystem } from "./tool/read-filesystem.js"
 import { Tool } from "./tool.js"
 import { ToolOutput } from "./tool-output.js"
 import { Vcs } from "./vcs.js"
+import { Sandbox } from "./sandbox.js"
 
 export * as Instance from "./instance.js"
 export { Service, node, type Interface } from "./instance/service.js"
@@ -61,6 +62,7 @@ const nodes = [
   LocationLifecycle.node,
   Environment.node,
   Config.node,
+  Sandbox.node,
   Agent.node,
   Command.node,
   Reference.node,

@@ -4,6 +4,7 @@ import { FSUtil } from "@opencode/util/fs-util"
 import { Npm } from "@opencode/util/npm"
 import { AppProcess } from "@opencode/util/process"
 import { which } from "../util/which.js"
+import type { Sandbox } from "../sandbox.js"
 
 export interface Info {
   readonly name: string
@@ -18,6 +19,7 @@ export function make(input: {
   readonly fs: FSUtil.Interface
   readonly npm: Npm.Interface
   readonly processes: AppProcess.Interface
+  readonly sandbox: Sandbox.Interface
   readonly bin: string
 }) {
   const disabled = false as const
@@ -25,14 +27,15 @@ export function make(input: {
   const findUp = (target: string) => input.fs.findUp(target, input.directory, input.worktree)
   const readText = (file: string) => input.fs.readFileString(file).pipe(Effect.orElseSucceed(() => ""))
   const commandOutput = (command: string[]) =>
-    input.processes
-      .run(
+    input.sandbox
+      .command(
         ChildProcess.make(command[0], command.slice(1), {
           cwd: input.directory,
           extendEnv: true,
           stdin: "ignore",
         }),
       )
+      .pipe(Effect.flatMap(input.processes.run))
       .pipe(Effect.option)
 
   const gofmt = executable("gofmt", [".go"], ["-w", "$FILE"], findExecutable)

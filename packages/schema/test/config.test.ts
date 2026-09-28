@@ -10,6 +10,18 @@ import { AbsolutePath } from "../src/schema.js"
 import { WebSearch } from "../src/websearch.js"
 
 describe("Config.Entry", () => {
+  test("round-trips sandbox configuration", () => {
+    const input = {
+      sandbox: {
+        enabled: true,
+        filesystem: { read: [], write: [], deny: [] },
+        network: { tools: "none" as const },
+        environment: "safe" as const,
+      },
+    }
+    expect(Schema.encodeSync(Config.Info)(Schema.decodeUnknownSync(Config.Info)(input))).toEqual(input)
+  })
+
   test("accepts directory-only worktree config and omits it when absent", () => {
     const decode = Schema.decodeUnknownSync(Config.Info)
     const input = { worktree: { directory: "../worktrees" } }

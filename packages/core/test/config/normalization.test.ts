@@ -49,6 +49,28 @@ function withoutEmptyCompatibilityContainers(input: Record<string, unknown>) {
 }
 
 describe("ConfigNormalize", () => {
+  test("normalizes sandbox and rejects unsupported security options", () => {
+    expect(decoded({ sandbox: true }).sandbox).toBe(true)
+    expect(
+      decoded({
+        sandbox: {
+          filesystem: { read: ["../reference"], write: ["./generated"], deny: [".env"] },
+          network: true,
+          environment: "safe",
+        },
+      }).sandbox,
+    ).toEqual({
+      filesystem: { read: ["../reference"], write: ["./generated"], deny: [".env"] },
+      network: true,
+      environment: "safe",
+    })
+    expect(ConfigNormalize.normalize({ sandbox: { network: { tools: "restricted" } } }).type).toBe("rejected")
+    expect(ConfigNormalize.normalize({ sandbox: { network: { mcp: "none" } } })).toMatchObject({
+      type: "rejected",
+      diagnostics: [{ kind: "unsupported", path: ["sandbox", "network", "mcp"] }],
+    })
+  })
+
   test("rejects every non-object root with one root diagnostic", () => {
     for (const input of [null, [], "config", true, 1]) {
       expect(ConfigNormalize.normalize(input)).toEqual({

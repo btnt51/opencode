@@ -11,6 +11,7 @@ import { FileAccess } from "../../file-access.js"
 import { Permission } from "../../permission.js"
 import { Ripgrep } from "../../ripgrep.js"
 import { RelativePath } from "../../schema.js"
+import { Sandbox } from "../../sandbox.js"
 
 export const name = "grep"
 
@@ -69,6 +70,7 @@ export const Plugin = {
     const location = yield* Location.Service
     const access = yield* FileAccess.Service
     const permission = yield* Permission.Service
+    const sandbox = yield* Sandbox.Service
 
     yield* ctx.tool
       .transform((editor) =>
@@ -83,6 +85,7 @@ export const Plugin = {
             Effect.gen(function* () {
               const source = { type: "tool" as const, messageID: context.messageID, id: context.id }
               const target = yield* access.resolve({ path: input.path ?? "." })
+              yield* sandbox.read(target.absolute)
               yield* access.authorizeExternal([target], context)
               yield* permission.assert({
                 action: name,
