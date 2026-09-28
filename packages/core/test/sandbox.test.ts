@@ -108,6 +108,41 @@ it.live("defaults provider to configured and the MCP allowlist to empty", () =>
   }).pipe(Effect.provide(layer(true))),
 )
 
+it.live("builds a restricted policy without treating an empty allowlist as full or none", () =>
+  Effect.gen(function* () {
+    const sandbox = yield* Sandbox.Service
+    expect(sandbox.policy.network).toEqual({ allow: [] })
+    expect(yield* sandbox.network("webfetch").pipe(Effect.flip)).toMatchObject({
+      reason: "in-process network tools are unsupported in restricted mode",
+    })
+  }).pipe(Effect.provide(layer({ network: { tools: { mode: "restricted", allow: [] } } }))),
+)
+
+it.live("injects only the namespace relay proxy and redacts host proxy credentials", () =>
+  Effect.gen(function* () {
+    const location = yield* Location.Service
+    const sandbox = yield* Sandbox.Service
+    const command = yield* sandbox.command(
+      ChildProcess.make("/bin/echo", ["ok"], {
+        cwd: location.directory,
+        env: { ALL_PROXY: "http://user:secret@host-proxy.example:8080" },
+      }),
+    )
+    if (command._tag !== "StandardCommand") return
+    expect(command.args).not.toContain("--share-net")
+    expect(command.args).toContain("/run/opencode-network/relay.py")
+    expect(command.options.env?.ALL_PROXY).toBeUndefined()
+    expect(command.options.env?.HTTPS_PROXY).toBe("http://127.0.0.1:18080")
+  }).pipe(
+    Effect.provide(
+      layer({
+        environment: "all",
+        network: { tools: { mode: "restricted", allow: [{ host: "github.com", ports: [443] }] } },
+      }),
+    ),
+  ),
+)
+
 it.live("isolates local MCP networking while preserving only its explicit environment", () =>
   Effect.gen(function* () {
     const location = yield* Location.Service

@@ -8,6 +8,7 @@ import { ChildProcess } from "effect/unstable/process"
 import { Config } from "./config.js"
 import { Location } from "./location.js"
 import { AbsolutePath } from "./schema.js"
+import { SandboxNetwork } from "./sandbox/network.js"
 
 export class Denied extends Schema.TaggedError<Denied>()("Sandbox.Denied", {
   operation: Schema.Literals(["read", "write", "execute", "network"]),
@@ -21,7 +22,7 @@ export interface Policy {
   readonly read: readonly AbsolutePath[]
   readonly write: readonly AbsolutePath[]
   readonly deny: readonly AbsolutePath[]
-  readonly network: "none" | "full"
+  readonly network: "none" | "full" | SandboxNetwork.Policy
   readonly provider: "configured" | "disabled"
   readonly mcp: ReadonlySet<string>
   readonly environment: "safe" | "all"
@@ -44,7 +45,7 @@ export class Service extends Context.Service<Service, Interface>()("@opencode/Sa
 
 const SAFE_ENV = new Set(["COLORTERM", "LANG", "LC_ALL", "LC_CTYPE", "PATH", "TERM", "TZ"])
 
-const layer = Layer.effect(
+const layer = Layer.scoped(
   Service,
   Effect.gen(function* () {
     const config = yield* Config.Service
@@ -72,11 +73,16 @@ const layer = Layer.effect(
     const deny = objects
       .flatMap((value) => value.filesystem?.deny ?? [])
       .map((value) => AbsolutePath.make(path.resolve(location.directory, value)))
-    const network = trustedObjects.some(
+    const fullNetwork = trustedObjects.some(
       (value) => value.network === true || (typeof value.network === "object" && value.network.tools === "full"),
     )
-      ? "full"
-      : "none"
+    const restrictedSelections = trustedObjects.flatMap((value) =>
+      typeof value.network === "object" && typeof value.network.tools === "object" ? value.network.tools.allow : [],
+    )
+    const hasRestricted = trustedObjects.some(
+      (value) => typeof value.network === "object" && typeof value.network.tools === "object",
+    )
+    const network = fullNetwork ? "full" : hasRestricted ? { allow: restrictedSelections } : "none"
     const environment = trustedObjects.some((value) => value.environment === "all") ? "all" : "safe"
     const provider = trustedObjects.some(
       (value) => typeof value.network === "object" && value.network.provider === "disabled",
@@ -97,6 +103,10 @@ const layer = Layer.effect(
       mcp,
       environment,
     }
+    const broker =
+      policy.enabled && typeof policy.network === "object"
+        ? yield* SandboxNetwork.makeBroker(policy.network)
+        : undefined
     if (policy.enabled && (process.platform !== "linux" || location.workspaceID))
       return yield* new Denied({
         operation: "execute",
@@ -138,7 +148,7 @@ const layer = Layer.effect(
 
     const isolate = Effect.fn("Sandbox.command")(function* (
       command: ChildProcess.Command,
-      commandNetwork: "none" | "full",
+      commandNetwork: "none" | "full" | SandboxNetwork.Policy,
       explicitEnvironment: boolean,
     ) {
       if (!policy.enabled) return command
@@ -176,6 +186,22 @@ const layer = Layer.effect(
         "/etc/ssl",
         ...(commandNetwork === "full" ? ["/etc/resolv.conf"] : []),
       ]
+      const restricted = typeof commandNetwork === "object"
+      if (restricted && !broker)
+        return yield* new Denied({ operation: "network", path: command.command, reason: "network broker unavailable" })
+      const proxy = "http://127.0.0.1:18080"
+      if (restricted) {
+        Object.keys(env)
+          .filter((key) => key.toUpperCase().endsWith("_PROXY"))
+          .forEach((key) => delete env[key])
+        env.HTTP_PROXY = proxy
+        env.HTTPS_PROXY = proxy
+        env.http_proxy = proxy
+        env.https_proxy = proxy
+        env.NO_PROXY = ""
+        env.no_proxy = ""
+        env.OPENCODE_BROKER_SOCKET = "/run/opencode-network/broker.sock"
+      }
       const executable = path.isAbsolute(command.command) ? ["--ro-bind", command.command, command.command] : []
       const args = [
         "--die-with-parent",
@@ -188,6 +214,7 @@ const layer = Layer.effect(
         "/dev",
         "--tmpfs",
         "/tmp",
+        ...(restricted ? ["--ro-bind", broker!.root, "/run/opencode-network"] : []),
         ...runtime.flatMap((root) => ["--ro-bind-try", root, root]),
         "--dir",
         "/etc",
@@ -201,8 +228,9 @@ const layer = Layer.effect(
         "--chdir",
         cwd,
         "--",
-        command.command,
-        ...command.args,
+        ...(restricted
+          ? ["/usr/bin/python3", "/run/opencode-network/relay.py", command.command, ...command.args]
+          : [command.command, ...command.args]),
       ]
       return ChildProcess.make("bwrap", args, {
         ...command.options,
@@ -229,8 +257,17 @@ const layer = Layer.effect(
       network: (tool) =>
         assertSupported("network", tool).pipe(
           Effect.andThen(
-            policy.enabled && policy.network === "none"
-              ? Effect.fail(new Denied({ operation: "network", path: tool, reason: "tool network is disabled" }))
+            policy.enabled && policy.network !== "full"
+              ? Effect.fail(
+                  new Denied({
+                    operation: "network",
+                    path: tool,
+                    reason:
+                      policy.network === "none"
+                        ? "tool network is disabled"
+                        : "in-process network tools are unsupported in restricted mode",
+                  }),
+                )
               : Effect.void,
           ),
         ),
