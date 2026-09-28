@@ -111,14 +111,75 @@ describe("Notification", () => {
     }),
   )
 
-  it.effect("disables proxy destinations until proxy transport is supported", () =>
+  it.effect("keeps omitted and direct proxy modes enabled", () =>
     Effect.sync(() => {
       expect(
         Notification.destinations(
-          { personal: { type: "telegram", botToken: "secret", chatId: "chat", proxy: "http://proxy" } },
+          {
+            personal: {
+              type: "telegram",
+              botToken: "secret",
+              chatId: "chat",
+              proxy: { mode: "direct" },
+            },
+          },
           successClient(),
         ),
-      ).toEqual([])
+      ).toHaveLength(1)
+    }),
+  )
+
+  it.effect("validates the proxy configuration contract", () =>
+    Effect.sync(() => {
+      expect(Schema.is(ConfigNotification.Proxy)({ mode: "direct" })).toBeTrue()
+      expect(Schema.is(ConfigNotification.Proxy)({ mode: "environment" })).toBeTrue()
+      expect(Schema.is(ConfigNotification.Proxy)({ mode: "url", url: "http://proxy.example:8080" })).toBeTrue()
+      expect(Schema.is(ConfigNotification.Proxy)({ mode: "url", url: "socks5://proxy.example" })).toBeFalse()
+      expect(Schema.is(ConfigNotification.Proxy)({ mode: "url", url: "" })).toBeFalse()
+    }),
+  )
+
+  it.effect("selects environment proxies with precedence and empty fallback", () =>
+    Effect.sync(() => {
+      expect(
+        Notification.environmentProxy("https://api.telegram.org/send", {
+          https_proxy: " ",
+          HTTPS_PROXY: "http://secure-proxy",
+          HTTP_PROXY: "http://wrong-proxy",
+          ALL_PROXY: "http://fallback",
+        }),
+      ).toBe("http://secure-proxy")
+      expect(
+        Notification.environmentProxy("http://api.telegram.org/send", {
+          http_proxy: "http://lowercase",
+          HTTP_PROXY: "http://uppercase",
+        }),
+      ).toBe("http://lowercase")
+    }),
+  )
+
+  it.effect("honors NO_PROXY hostname, suffix, IPv6, and effective ports", () =>
+    Effect.sync(() => {
+      const env = { HTTPS_PROXY: "http://proxy", NO_PROXY: "exact.test,.example.test,*.wild.test,[::1]:443" }
+      expect(Notification.environmentProxy("https://exact.test", env)).toBeUndefined()
+      expect(Notification.environmentProxy("https://sub.example.test", env)).toBeUndefined()
+      expect(Notification.environmentProxy("https://evilexample.test", env)).toBe("http://proxy")
+      expect(Notification.environmentProxy("https://sub.wild.test", env)).toBeUndefined()
+      expect(Notification.environmentProxy("https://wild.test", env)).toBe("http://proxy")
+      expect(Notification.environmentProxy("https://[::1]", env)).toBeUndefined()
+      expect(Notification.environmentProxy("https://exact.test:444", { ...env, NO_PROXY: "exact.test:443" })).toBe(
+        "http://proxy",
+      )
+      expect(
+        Notification.environmentProxy("https://anything.test", { HTTPS_PROXY: "http://proxy", NO_PROXY: "*" }),
+      ).toBeUndefined()
+      expect(
+        Notification.environmentProxy("https://exact.test", {
+          HTTPS_PROXY: "http://proxy",
+          no_proxy: " ",
+          NO_PROXY: "exact.test",
+        }),
+      ).toBeUndefined()
     }),
   )
 })
