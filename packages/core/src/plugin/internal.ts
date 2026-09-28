@@ -104,6 +104,7 @@ import { OptimizePlugin } from "./optimize.js"
 import { VcsGitPlugin } from "./vcs/git.js"
 import { WarmingPlugin } from "./warming.js"
 import { WellKnownPlugin } from "../wellknown/plugin.js"
+import { NotificationPlugin } from "./notification.js"
 
 const services = [
   Agent.Service,
@@ -267,6 +268,7 @@ const post = [
   ConfigProviderPlugin.Plugin,
   ConfigWebSearchPlugin.Plugin,
   ConfigPolicyPlugin.Plugin,
+  NotificationPlugin.Plugin,
 ] as const satisfies readonly InternalPlugin[]
 
 // Repository config must not switch off policy enforcement or the Console connection that delivers
