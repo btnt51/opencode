@@ -17,6 +17,7 @@ import { ConfigProvider } from "@opencode/schema/config/provider"
 import { ConfigReference } from "@opencode/schema/config/reference"
 import { ConfigExperimental } from "@opencode/schema/config/experimental"
 import { ConfigSandbox } from "@opencode/schema/config/sandbox"
+import { ConfigNotification } from "@opencode/schema/config/notification"
 import { Permission } from "@opencode/schema/permission"
 import { ConfigAgentV1 } from "../v1/config/agent.js"
 import { ConfigAttachmentV1 } from "../v1/config/attachment.js"
@@ -243,6 +244,16 @@ export function normalize(input: unknown): Result {
   normalizeWatcher(input, encoded, diagnostics)
   normalizeFormatter(input, encoded, diagnostics)
   normalizeLsp(input, encoded, diagnostics)
+  if (own(input, "notification")) {
+    const notification = decodeMap(
+      input.notification,
+      ConfigNotification.Telegram,
+      ["notification"],
+      diagnostics,
+      decodeEncoded,
+    )
+    if (isRecord(input.notification)) encoded.notification = notification
+  }
 
   const nativeAtomic = {
     $schema: Info.fields.$schema,

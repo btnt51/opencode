@@ -22,6 +22,7 @@ import { ConfigWatcher } from "./config/watcher.js"
 import { ConfigWarming } from "./config/warming.js"
 import { ConfigWorktree } from "./config/worktree.js"
 import { ConfigSandbox } from "./config/sandbox.js"
+import { ConfigNotification } from "./config/notification.js"
 
 export class Info extends Schema.Class<Info>("Config.Info")({
   $schema: optional(Schema.String).annotate({
@@ -57,6 +58,9 @@ export class Info extends Schema.Class<Info>("Config.Info")({
   }),
   sandbox: ConfigSandbox.Selection.pipe(optional).annotate({
     description: "Isolate agent-controlled filesystem, process, environment, and tool network access",
+  }),
+  notification: ConfigNotification.Destinations.pipe(optional).annotate({
+    description: "Named backend notification destinations",
   }),
   agents: Schema.Record(Schema.String, ConfigAgent.Info).pipe(optional).annotate({
     description: "Named built-in agent overrides and custom agent definitions",
