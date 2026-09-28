@@ -11,6 +11,7 @@ import { Formatter } from "../../formatter.js"
 import { make, type Info } from "../../formatter/builtins.js"
 import { Location } from "../../location.js"
 import { ConfigEntryObserver } from "./entry-observer.js"
+import { Sandbox } from "../../sandbox.js"
 
 export const Plugin = define({
   id: "opencode.config.formatter",
@@ -22,6 +23,7 @@ export const Plugin = define({
     const location = yield* Location.Service
     const npm = yield* Npm.Service
     const processes = yield* AppProcess.Service
+    const sandbox = yield* Sandbox.Service
     const loaded = yield* ConfigEntryObserver.observe(config, ctx.event, formatter.reload())
 
     yield* formatter.transform((editor) => {
@@ -33,6 +35,7 @@ export const Plugin = define({
         fs,
         npm,
         processes,
+        sandbox,
         bin: global.bin,
       })
       builtIns.forEach(editor.set)

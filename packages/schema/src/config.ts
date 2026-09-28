@@ -21,6 +21,7 @@ import { ConfigToolOutput } from "./config/tool-output.js"
 import { ConfigWatcher } from "./config/watcher.js"
 import { ConfigWarming } from "./config/warming.js"
 import { ConfigWorktree } from "./config/worktree.js"
+import { ConfigSandbox } from "./config/sandbox.js"
 
 export class Info extends Schema.Class<Info>("Config.Info")({
   $schema: optional(Schema.String).annotate({
@@ -53,6 +54,9 @@ export class Info extends Schema.Class<Info>("Config.Info")({
   }),
   permissions: Permission.Ruleset.pipe(optional).annotate({
     description: "Ordered tool permission rules applied to agent tool use",
+  }),
+  sandbox: ConfigSandbox.Selection.pipe(optional).annotate({
+    description: "Isolate agent-controlled filesystem, process, environment, and tool network access",
   }),
   agents: Schema.Record(Schema.String, ConfigAgent.Info).pipe(optional).annotate({
     description: "Named built-in agent overrides and custom agent definitions",

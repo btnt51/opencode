@@ -7,6 +7,7 @@ import type { ShellCreateBefore } from "@opencode/plugin/effect/shell"
 import type { Tool } from "@opencode/schema/tool"
 import { Deferred, Effect, Schema, Scope } from "effect"
 import { Config } from "../../config.js"
+import { Sandbox } from "../../sandbox.js"
 import { Environment } from "../../environment/index.js"
 import { Job } from "../../job.js"
 import { FileAccess } from "../../file-access.js"
@@ -111,6 +112,7 @@ export const Plugin = {
     const compatibleShell = shellSelect.resolve({ priority: "compat" })
     const permission = yield* Permission.Service
     const config = yield* Config.Service
+    const sandbox = yield* Sandbox.Service
 
     const prepare = Effect.fn("ShellTool.prepare")(function* (invocation: ShellCreateBefore, context: Tool.Context) {
       const source = {
@@ -119,14 +121,20 @@ export const Plugin = {
         id: context.id,
       }
       const target = yield* access.resolve({ path: invocation.cwd, kind: "directory" })
+      yield* sandbox.read(target.absolute)
+      yield* sandbox.write(target.absolute)
       invocation.cwd = target.absolute
       const timeout = invocation.timeout
       const portable = Config.latest(yield* config.entries(), "experimental")?.portable_shell_scanner === true
       const parsed = yield* ShellParse.scan(invocation.command, invocation.shell, target.absolute, { portable })
       const directories = yield* Effect.forEach(parsed.directories, (directory) =>
-        access.resolve({
-          path: FileAccess.resolvePath(target.absolute, directory),
-          kind: "directory",
+        Effect.gen(function* () {
+          const resolved = yield* access.resolve({
+            path: FileAccess.resolvePath(target.absolute, directory),
+            kind: "directory",
+          })
+          yield* sandbox.read(resolved.absolute)
+          return resolved
         }),
       )
       yield* access.authorizeExternal([target, ...directories], context)

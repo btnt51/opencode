@@ -8,6 +8,7 @@ import { HttpClientError } from "effect/unstable/http"
 import { Form } from "../../form.js"
 import { Permission } from "../../permission.js"
 import { WebSearch } from "../../websearch.js"
+import { Sandbox } from "../../sandbox.js"
 
 export const name = "websearch"
 export const NO_RESULTS = "No search results found. Please try a different query."
@@ -35,6 +36,7 @@ export const Plugin = {
     const permission = yield* Permission.Service
     const forms = yield* Form.Service
     const websearch = yield* WebSearch.Service
+    const sandbox = yield* Sandbox.Service
 
     yield* ctx.tool
       .transform((editor) =>
@@ -46,6 +48,7 @@ export const Plugin = {
           output: Output,
           execute: (input, context) =>
             Effect.gen(function* () {
+              yield* sandbox.network(name)
               yield* permission.assert({
                 action: name,
                 resources: [input.query],

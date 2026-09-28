@@ -16,6 +16,7 @@ import { Plugin } from "../plugin/service.js"
 import { PluginHooks } from "../plugin/hooks.js"
 import { Skill } from "../skill.js"
 import { AttachmentError, SkillNotFoundError } from "./error.js"
+import { Sandbox } from "../sandbox.js"
 
 export type Input = {
   text: string
@@ -150,6 +151,7 @@ const normalizeImageAttachment = Effect.fn("SessionPrompt.normalizeImageAttachme
 
 const readFileAttachment = Effect.fn("SessionPrompt.readFileAttachment")(function* (uri: string) {
   const fs = yield* FSUtil.Service
+  const sandbox = yield* Sandbox.Service
   const url = yield* Effect.try({
     try: () => new URL(uri),
     catch: () => new AttachmentError({ uri, message: `Invalid attachment URI: ${uri}` }),
@@ -166,6 +168,11 @@ const readFileAttachment = Effect.fn("SessionPrompt.readFileAttachment")(functio
     },
     catch: () => new AttachmentError({ uri, message: `Invalid file URI: ${uri}` }),
   })
+  yield* sandbox
+    .read(target)
+    .pipe(
+      Effect.mapError((error) => new AttachmentError({ uri, message: `Sandbox denied attachment: ${error.reason}` })),
+    )
   const info = yield* fs
     .stat(target)
     .pipe(Effect.mapError(() => new AttachmentError({ uri, message: `Unable to read attachment: ${uri}` })))

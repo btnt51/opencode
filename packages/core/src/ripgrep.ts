@@ -8,6 +8,7 @@ import { collectStream, waitForAbort } from "@opencode/util/process"
 import { Environment } from "./environment/index.js"
 import { NonNegativeInt, PositiveInt, RelativePath } from "./schema.js"
 import { RipgrepBinary } from "./ripgrep/binary.js"
+import { Sandbox } from "./sandbox.js"
 
 /**
  * Small core-owned ripgrep execution adapter. It deliberately exposes raw
@@ -104,6 +105,7 @@ const layer = Layer.effect(
   Effect.gen(function* () {
     const environment = yield* Environment.Service
     const binary = yield* RipgrepBinary.Service
+    const sandbox = yield* Sandbox.Service
 
     const run = <A>(input: {
       readonly cwd: string
@@ -117,9 +119,14 @@ const layer = Layer.effect(
       const program = Effect.scoped(
         Effect.gen(function* () {
           // Hosted environments will resolve rg through their driver image; the spawner is the execution seam.
-          const handle = yield* environment.spawner.spawn(
-            ChildProcess.make(yield* binary.filepath, input.args, { cwd: input.cwd, extendEnv: true, stdin: "ignore" }),
+          const command = yield* sandbox.command(
+            ChildProcess.make(yield* binary.filepath, input.args, {
+              cwd: input.cwd,
+              extendEnv: true,
+              stdin: "ignore",
+            }),
           )
+          const handle = yield* environment.spawner.spawn(command)
           const stderrFiber = yield* collectStream(handle.stderr, ERROR_BYTES).pipe(
             Effect.map((output) => output.buffer.toString("utf8")),
             Effect.forkScoped,
@@ -272,4 +279,8 @@ const layer = Layer.effect(
   }),
 )
 
-export const node = makeLocationNode({ service: Service, layer, deps: [Environment.node, RipgrepBinary.node] })
+export const node = makeLocationNode({
+  service: Service,
+  layer,
+  deps: [Environment.node, RipgrepBinary.node, Sandbox.node],
+})

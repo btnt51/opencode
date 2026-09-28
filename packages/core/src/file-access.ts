@@ -11,6 +11,7 @@ import { Project } from "./project.js"
 import { AbsolutePath } from "./schema.js"
 import type { SessionErrors } from "./session/error.js"
 import type { Tool } from "./tool.js"
+import { Sandbox } from "./sandbox.js"
 
 export const Kind = Schema.Literals(["file", "directory"])
 export type Kind = typeof Kind.Type
@@ -65,6 +66,8 @@ export interface Interface {
     context: Invocation,
     options?: ReadOptions,
   ) => Effect.Effect<Target, FSUtil.Error | Error | SessionErrors.NotFoundError>
+  /** Enforce sandbox policy before external approval and edit permission checks. */
+  readonly authorizeWrite: (target: Target) => Effect.Effect<void, Sandbox.Denied>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/FileAccess") {}
@@ -95,6 +98,7 @@ const layer = Layer.effect(
     const fs = yield* FSUtil.Service
     const location = yield* Location.Service
     const permission = yield* Permission.Service
+    const sandbox = yield* Sandbox.Service
 
     const resolve = Effect.fn("FileAccess.resolve")(function* (input: ResolveInput) {
       const absolute = AbsolutePath.make(resolvePath(location.directory, input.path))
@@ -153,6 +157,7 @@ const layer = Layer.effect(
       options?: ReadOptions,
     ) {
       const target = yield* resolve({ path: file, kind: options ? "file" : undefined })
+      yield* sandbox.read(target.absolute)
       const sibling = options && path.dirname(target.absolute) === path.dirname(options.siblingOf.absolute)
 
       // Filename recovery shares the directory approval, but checks the recovered file's own read rules.
@@ -166,8 +171,16 @@ const layer = Layer.effect(
       return target
     })
 
-    return Service.of({ resolve, authorizeExternal, authorizeRead })
+    const authorizeWrite = Effect.fn("FileAccess.authorizeWrite")(function* (target: Target) {
+      yield* sandbox.write(target.absolute)
+    })
+
+    return Service.of({ resolve, authorizeExternal, authorizeRead, authorizeWrite })
   }),
 )
 
-export const node = makeLocationNode({ service: Service, layer, deps: [FSUtil.node, Location.node, Permission.node] })
+export const node = makeLocationNode({
+  service: Service,
+  layer,
+  deps: [FSUtil.node, Location.node, Permission.node, Sandbox.node],
+})

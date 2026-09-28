@@ -8,6 +8,7 @@ import { Parser } from "htmlparser2"
 import { Permission } from "../../permission.js"
 import { convertHTMLToMarkdown, MAX_MARKDOWN_BYTES } from "../html-markdown.js"
 import { collectBoundedResponseBody } from "../http-body.js"
+import { Sandbox } from "../../sandbox.js"
 
 export const name = "webfetch"
 export const MAX_RESPONSE_BYTES = MAX_MARKDOWN_BYTES
@@ -105,6 +106,7 @@ export const Plugin = {
   effect: Effect.fn("WebFetchTool.Plugin")(function* (ctx: Context) {
     const http = yield* HttpClient.HttpClient
     const permission = yield* Permission.Service
+    const sandbox = yield* Sandbox.Service
 
     yield* ctx.tool
       .transform((editor) =>
@@ -116,6 +118,7 @@ export const Plugin = {
           output: Output,
           execute: (input, context) =>
             Effect.gen(function* () {
+              yield* sandbox.network(name)
               yield* Effect.try({
                 try: () => assertHttpUrl(new URL(input.url)),
                 catch: (error) => error,

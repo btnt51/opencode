@@ -16,6 +16,7 @@ import { ConfigPolicy } from "@opencode/schema/config/policy"
 import { ConfigProvider } from "@opencode/schema/config/provider"
 import { ConfigReference } from "@opencode/schema/config/reference"
 import { ConfigExperimental } from "@opencode/schema/config/experimental"
+import { ConfigSandbox } from "@opencode/schema/config/sandbox"
 import { Permission } from "@opencode/schema/permission"
 import { ConfigAgentV1 } from "../v1/config/agent.js"
 import { ConfigAttachmentV1 } from "../v1/config/attachment.js"
@@ -65,6 +66,37 @@ export function normalize(input: unknown): Result {
 
   const diagnostics: Diagnostic[] = []
   const encoded: Record<string, unknown> = {}
+  const sandbox = own(input, "sandbox")
+    ? decodeEncoded(ConfigSandbox.Selection, input.sandbox, ["sandbox"], diagnostics)
+    : undefined
+  if (own(input, "sandbox") && sandbox === undefined) return { type: "rejected", diagnostics }
+  if (isRecord(input.sandbox)) {
+    const unsupported = Object.keys(input.sandbox).filter(
+      (key) => !["enabled", "filesystem", "network", "environment"].includes(key),
+    )
+    if (isRecord(input.sandbox.network))
+      unsupported.push(
+        ...Object.keys(input.sandbox.network)
+          .filter((key) => key !== "tools")
+          .map((key) => `network.${key}`),
+      )
+    if (isRecord(input.sandbox.filesystem))
+      unsupported.push(
+        ...Object.keys(input.sandbox.filesystem)
+          .filter((key) => !["read", "write", "deny"].includes(key))
+          .map((key) => `filesystem.${key}`),
+      )
+    if (unsupported.length)
+      return {
+        type: "rejected",
+        diagnostics: unsupported.map((key) => ({
+          kind: "unsupported" as const,
+          path: ["sandbox", ...key.split(".")],
+          message: "rejected unsupported sandbox security option",
+        })),
+      }
+  }
+  if (sandbox !== undefined) encoded.sandbox = sandbox
   unsupportedTopLevel.forEach((key) => unsupportedIfPresent(input, key, [key], diagnostics))
 
   const legacySnapshots = own(input, "snapshot")
