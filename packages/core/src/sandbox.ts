@@ -22,6 +22,8 @@ export interface Policy {
   readonly write: readonly AbsolutePath[]
   readonly deny: readonly AbsolutePath[]
   readonly network: "none" | "full"
+  readonly provider: "configured" | "disabled"
+  readonly mcp: ReadonlySet<string>
   readonly environment: "safe" | "all"
 }
 
@@ -31,6 +33,11 @@ export interface Interface {
   readonly write: (target: string) => Effect.Effect<void, Denied>
   readonly command: (command: ChildProcess.Command) => Effect.Effect<ChildProcess.Command, Denied>
   readonly network: (tool: string) => Effect.Effect<void, Denied>
+  readonly mcp: (server: string) => Effect.Effect<void, Denied>
+  readonly localMcpCommand: (
+    command: ChildProcess.Command,
+    network: "none" | "full",
+  ) => Effect.Effect<ChildProcess.Command, Denied>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/Sandbox") {}
@@ -71,6 +78,14 @@ const layer = Layer.effect(
       ? "full"
       : "none"
     const environment = trustedObjects.some((value) => value.environment === "all") ? "all" : "safe"
+    const provider = trustedObjects.some(
+      (value) => typeof value.network === "object" && value.network.provider === "disabled",
+    )
+      ? "disabled"
+      : "configured"
+    const mcp = new Set(
+      trustedObjects.flatMap((value) => (typeof value.network === "object" ? (value.network.mcp?.allow ?? []) : [])),
+    )
     const policy: Policy = {
       enabled,
       workspace: AbsolutePath.make(path.resolve(location.directory)),
@@ -78,6 +93,8 @@ const layer = Layer.effect(
       write: roots("write"),
       deny,
       network,
+      provider,
+      mcp,
       environment,
     }
     if (policy.enabled && (process.platform !== "linux" || location.workspaceID))
@@ -119,7 +136,11 @@ const layer = Layer.effect(
         return yield* new Denied({ operation, path: target, reason: "path is outside sandbox roots" })
     })
 
-    const command = Effect.fn("Sandbox.command")(function* (command: ChildProcess.Command) {
+    const isolate = Effect.fn("Sandbox.command")(function* (
+      command: ChildProcess.Command,
+      commandNetwork: "none" | "full",
+      explicitEnvironment: boolean,
+    ) {
       if (!policy.enabled) return command
       yield* assertSupported("execute", command._tag)
       if (command._tag !== "StandardCommand")
@@ -134,14 +155,16 @@ const layer = Layer.effect(
         }).pipe(Effect.map((info) => ({ target, directory: info.isDirectory() }))),
       )
       const env =
-        policy.environment === "all"
+        policy.environment === "all" && !explicitEnvironment
           ? { ...process.env, ...command.options.env }
           : Object.fromEntries(
               Object.entries({ ...process.env, ...command.options.env }).filter(
-                ([key, value]) => value !== undefined && SAFE_ENV.has(key.toUpperCase()),
+                ([key, value]) =>
+                  value !== undefined &&
+                  (SAFE_ENV.has(key.toUpperCase()) || (explicitEnvironment && key in (command.options.env ?? {}))),
               ),
             )
-      if (policy.environment === "safe") {
+      if (policy.environment === "safe" || explicitEnvironment) {
         env.OPENCODE_TERMINAL = "1"
         if (command.options.env?.BUN_BE_BUN === "1") env.BUN_BE_BUN = "1"
       }
@@ -151,14 +174,14 @@ const layer = Layer.effect(
         "/etc/nsswitch.conf",
         "/etc/hosts",
         "/etc/ssl",
-        ...(policy.network === "full" ? ["/etc/resolv.conf"] : []),
+        ...(commandNetwork === "full" ? ["/etc/resolv.conf"] : []),
       ]
       const executable = path.isAbsolute(command.command) ? ["--ro-bind", command.command, command.command] : []
       const args = [
         "--die-with-parent",
         "--new-session",
         "--unshare-all",
-        ...(policy.network === "full" ? ["--share-net"] : []),
+        ...(commandNetwork === "full" ? ["--share-net"] : []),
         "--proc",
         "/proc",
         "--dev",
@@ -189,11 +212,20 @@ const layer = Layer.effect(
       })
     })
 
+    const command = (value: ChildProcess.Command) => isolate(value, policy.network, false)
+
     return Service.of({
       policy,
       read: (target) => authorize("read", target),
       write: (target) => authorize("write", target),
       command,
+      localMcpCommand: (value, localNetwork) => isolate(value, localNetwork, true),
+      mcp: (server) =>
+        !policy.enabled || policy.mcp.has(server)
+          ? Effect.void
+          : Effect.fail(
+              new Denied({ operation: "network", path: server, reason: "MCP server is not allowed by sandbox policy" }),
+            ),
       network: (tool) =>
         assertSupported("network", tool).pipe(
           Effect.andThen(

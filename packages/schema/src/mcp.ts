@@ -30,6 +30,11 @@ export class LocalConfig extends Schema.Class<LocalConfig>("Mcp.LocalConfig")({
     description: "Working directory for the MCP server process. Relative paths resolve from the workspace directory.",
   }),
   environment: Schema.Record(Schema.String, Schema.String).pipe(optional),
+  sandbox: Schema.Struct({ network: Schema.Literals(["none", "full"]).pipe(optional) })
+    .pipe(optional)
+    .annotate({
+      description: "Additional isolation for a local MCP server. Network access defaults to none.",
+    }),
   disabled: Schema.Boolean.pipe(optional),
   codemode: Schema.Boolean.pipe(optional).annotate({
     description: "Expose this server's tools through Code Mode. Defaults to true.",

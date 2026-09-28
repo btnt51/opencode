@@ -204,6 +204,7 @@ export const connect = Effect.fnUntraced(function* (
           ...(command === "opencode" ? { BUN_BE_BUN: "1" } : {}),
           ...config.environment,
         },
+        network: config.sandbox?.network ?? "none",
       })
       return yield* initialize(transport)
     }

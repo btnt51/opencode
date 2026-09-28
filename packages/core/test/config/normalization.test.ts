@@ -65,9 +65,14 @@ describe("ConfigNormalize", () => {
       environment: "safe",
     })
     expect(ConfigNormalize.normalize({ sandbox: { network: { tools: "restricted" } } }).type).toBe("rejected")
-    expect(ConfigNormalize.normalize({ sandbox: { network: { mcp: "none" } } })).toMatchObject({
+    expect(
+      decoded({
+        sandbox: { network: { tools: "none", provider: "configured", mcp: { allow: ["company"] } } },
+      }).sandbox,
+    ).toEqual({ network: { tools: "none", provider: "configured", mcp: { allow: ["company"] } } })
+    expect(ConfigNormalize.normalize({ sandbox: { network: { proxy: "none" } } })).toMatchObject({
       type: "rejected",
-      diagnostics: [{ kind: "unsupported", path: ["sandbox", "network", "mcp"] }],
+      diagnostics: [{ kind: "unsupported", path: ["sandbox", "network", "proxy"] }],
     })
   })
 

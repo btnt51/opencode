@@ -5,6 +5,7 @@ import { Cause, Duration, Effect, Queue, Scope, Stream } from "effect"
 import { ChildProcess } from "effect/unstable/process"
 import type { ChildProcessHandle } from "effect/unstable/process/ChildProcessSpawner"
 import { Environment } from "../environment/index.js"
+import { Sandbox } from "../sandbox.js"
 
 /** Mirrors StdioClientTransport: wait this long for a graceful exit after stdin closes. */
 const CLOSE_GRACE = Duration.seconds(2)
@@ -29,6 +30,7 @@ export interface Options {
    * environment. Host variables therefore never cross the seam into a remote workspace.
    */
   readonly environment: Record<string, string>
+  readonly network?: "none" | "full"
 }
 
 /**
@@ -41,6 +43,7 @@ export interface Options {
  */
 export const make = Effect.fnUntraced(function* (options: Options) {
   const environment = yield* Environment.Service
+  const sandbox = yield* Effect.serviceOption(Sandbox.Service)
   const scope = yield* Effect.scope
   // Outgoing frames are queued rather than written to `handle.stdin` directly: the sink closes the
   // stream it is run with, and stdin must stay open across the whole session.
@@ -77,17 +80,18 @@ export const make = Effect.fnUntraced(function* (options: Options) {
       state.phase = "starting"
       startup = Effect.runPromise(
         Effect.gen(function* () {
-          const handle = yield* environment.spawner.spawn(
-            ChildProcess.make(options.command, [...options.args], {
-              cwd: options.cwd,
-              env: options.environment,
-              extendEnv: true,
-              stdin: { stream: Stream.encodeText(Stream.fromQueue(outgoing)), endOnDone: true },
-              stdout: "pipe",
-              stderr: "pipe",
-              forceKillAfter: FORCE_KILL_AFTER,
-            }),
-          )
+          const process = ChildProcess.make(options.command, [...options.args], {
+            cwd: options.cwd,
+            env: options.environment,
+            extendEnv: true,
+            stdin: { stream: Stream.encodeText(Stream.fromQueue(outgoing)), endOnDone: true },
+            stdout: "pipe",
+            stderr: "pipe",
+            forceKillAfter: FORCE_KILL_AFTER,
+          })
+          const command =
+            sandbox._tag === "Some" ? yield* sandbox.value.localMcpCommand(process, options.network ?? "none") : process
+          const handle = yield* environment.spawner.spawn(command)
           state.handle = handle
           if (state.phase === "closed") {
             state.handle = undefined

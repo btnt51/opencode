@@ -86,3 +86,46 @@ it.live("freezes effective policy across config replacement", () =>
     expect(yield* sandbox.read("/outside-after-reload").pipe(Effect.flip)).toBeInstanceOf(Sandbox.Denied)
   }).pipe(Effect.provide(layer(true))),
 )
+
+it.live("separates provider and MCP infrastructure policy from tool networking", () =>
+  Effect.gen(function* () {
+    const sandbox = yield* Sandbox.Service
+    expect(sandbox.policy.network).toBe("none")
+    expect(sandbox.policy.provider).toBe("disabled")
+    yield* sandbox.mcp("company")
+    expect(yield* sandbox.mcp("denied").pipe(Effect.flip)).toMatchObject({
+      path: "denied",
+      reason: "MCP server is not allowed by sandbox policy",
+    })
+  }).pipe(Effect.provide(layer({ network: { tools: "none", provider: "disabled", mcp: { allow: ["company"] } } }))),
+)
+
+it.live("defaults provider to configured and the MCP allowlist to empty", () =>
+  Effect.gen(function* () {
+    const sandbox = yield* Sandbox.Service
+    expect(sandbox.policy.provider).toBe("configured")
+    expect(yield* sandbox.mcp("company").pipe(Effect.flip)).toBeInstanceOf(Sandbox.Denied)
+  }).pipe(Effect.provide(layer(true))),
+)
+
+it.live("isolates local MCP networking while preserving only its explicit environment", () =>
+  Effect.gen(function* () {
+    const location = yield* Location.Service
+    const sandbox = yield* Sandbox.Service
+    const command = yield* sandbox.localMcpCommand(
+      ChildProcess.make("/bin/echo", ["ok"], {
+        cwd: location.directory,
+        env: { MCP_EXPLICIT: "visible", OPENCODE_PROVIDER_KEY: "hidden" },
+        extendEnv: true,
+      }),
+      "none",
+    )
+    if (command._tag !== "StandardCommand") return
+    expect(command.command).toBe("bwrap")
+    expect(command.args).not.toContain("--share-net")
+    expect(command.options.extendEnv).toBe(false)
+    expect(command.options.env?.MCP_EXPLICIT).toBe("visible")
+    expect(command.options.env?.OPENCODE_PROVIDER_KEY).toBe("hidden")
+    expect(command.options.env?.HOME).toBeUndefined()
+  }).pipe(Effect.provide(layer(true))),
+)

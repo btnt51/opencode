@@ -15,6 +15,7 @@ import { Form } from "../form.js"
 import { Integration } from "../integration.js"
 import { KeyedMutex } from "../effect/keyed-mutex.js"
 import { Location } from "../location.js"
+import { Sandbox } from "../sandbox.js"
 import { waitForAbort } from "@opencode/util/process"
 import { State } from "../state.js"
 import type { McpClient } from "./client.js"
@@ -145,6 +146,7 @@ export const layer = (options?: Options) =>
     Effect.gen(function* () {
       const location = yield* Location.Service
       const environment = yield* Environment.Service
+      const sandbox = yield* Effect.serviceOption(Sandbox.Service)
       const bus = yield* Bus.Service
       const forms = yield* Form.Service
       const integration = yield* Integration.Service
@@ -153,6 +155,7 @@ export const layer = (options?: Options) =>
       const fork = yield* FiberSet.makeRuntime<never, void, never>()
 
       const entries = new Map<ServerName, ServerEntry>()
+      const trustedConfigs = new Map<ServerName, Mcp.ServerConfig>()
       // Serializes lifecycle operations per server. Anything taking this lock from a connection
       // callback must stay forked: lifecycle operations close scopes while holding it, firing onClose.
       const locks = KeyedMutex.makeUnsafe<ServerName>()
@@ -163,6 +166,7 @@ export const layer = (options?: Options) =>
       // rather than in committed config. Servers that connect anonymously simply never use the method.
       const owned = new Set<Integration.ID>()
       const register = Effect.fnUntraced(function* (name: ServerName, entry: ServerEntry) {
+        if (sandbox._tag === "Some" && sandbox.value.policy.enabled && !sandbox.value.policy.mcp.has(name)) return
         if (entry.config.type !== "remote" || entry.config.oauth === false) return
         const remote = entry.config
         // Key identity on name + url, not url alone: two configs for the same url under different names are
@@ -425,14 +429,25 @@ export const layer = (options?: Options) =>
           const { McpClient } = yield* Effect.promise(() => import("./client.js"))
           // List tools as part of connect so a failure here marks the server failed rather than
           // leaving it connected with a silently empty tool list and no path to recover.
-          const load = McpClient.connect(
-            name,
-            entry.config,
-            location.directory,
-            authProvider,
-            elicitation,
-            options?.clientInfo,
-          ).pipe(
+          const load = Effect.gen(function* () {
+            if (sandbox._tag === "Some") yield* sandbox.value.mcp(name)
+            const trusted = trustedConfigs.get(name)
+            if (trusted && !isDeepStrictEqual(trusted, entry.config))
+              return yield* new Sandbox.Denied({
+                operation: "network",
+                path: name,
+                reason: "MCP server configuration changed after the trusted policy snapshot",
+              })
+            if (!trusted) trustedConfigs.set(name, cloneConfig(entry.config))
+            return yield* McpClient.connect(
+              name,
+              entry.config,
+              location.directory,
+              authProvider,
+              elicitation,
+              options?.clientInfo,
+            )
+          }).pipe(
             Effect.flatMap((connection) => connection.tools().pipe(Effect.map((tools) => ({ connection, tools })))),
             // A stdio server is spawned on this location's execution plane, not the host's.
             Effect.provideService(Environment.Service, environment),
