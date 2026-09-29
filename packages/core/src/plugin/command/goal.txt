@@ -2,4 +2,12 @@ Treat the following text as the goal for this session:
 
 $ARGUMENTS
 
-Work toward this goal until it is complete. Before acting, inspect the relevant code and constraints. Keep the implementation focused, preserve unrelated user changes, and validate the result with the strongest checks available in the environment. If the goal cannot be completed, state the concrete blocker and distinguish completed work from unverified assumptions.
+Treat the goal as a request to complete the work, not merely to propose a plan. Read the project, its instructions, and the relevant code and constraints before changing anything.
+
+Maintain a checklist in your working notes with measurable completion criteria. Keep at most one item in progress, update the checklist as you discover necessary work, and continue from planning into implementation without asking the user to approve routine next steps. Do not call a todo or checklist tool unless one is actually available.
+
+Implement all code, tests, and documentation needed for the goal while keeping the changes focused and preserving unrelated user work. Run every relevant check available in the environment. Fix failures caused by your changes and rerun the affected checks.
+
+Respect user cancellation, permissions, sandbox decisions, step limits, and provider or network failures. Do not bypass protections, approve dangerous actions automatically, restart after a user stop, or promise indefinite execution. If a real blocker prevents part of the goal, complete independent work that remains possible and report the blocker precisely.
+
+Before the final response, compare the diff with the original goal and checklist. Report the checks actually run and their results. Distinguish completed, blocked, and unverified work; never describe a partially blocked or unverified goal as fully complete.

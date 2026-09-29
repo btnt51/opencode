@@ -40,7 +40,10 @@ describe("CommandPlugin.Plugin", () => {
       const prompts: {
         text: string
         files?: readonly { readonly uri: string }[]
+        agents?: readonly { readonly name: string }[]
+        skills?: readonly { readonly id: string }[]
         delivery?: "steer" | "queue"
+        sessionID?: Session.ID
       }[] = []
       yield* CommandPlugin.Plugin.effect(
         host({
@@ -52,7 +55,14 @@ describe("CommandPlugin.Plugin", () => {
           session: {
             prompt: (input) =>
               Effect.sync(() => {
-                prompts.push({ text: input.text, files: input.files, delivery: input.delivery })
+                prompts.push({
+                  text: input.text,
+                  files: input.files,
+                  agents: input.agents,
+                  skills: input.skills,
+                  delivery: input.delivery,
+                  sessionID: input.sessionID,
+                })
                 return SessionInbox.User.make({
                   id: SessionMessage.ID.make("msg_test"),
                   sessionID: input.sessionID,
@@ -87,7 +97,12 @@ describe("CommandPlugin.Plugin", () => {
         name: "goal",
         invocation: {
           sessionID: Session.ID.make("ses_test"),
-          prompt: { text: "ship the migration", files: [{ uri: "file:///tmp/requirements.md" }] },
+          prompt: {
+            text: 'ship "quoted"\n$& $1 $ARGUMENTS',
+            files: [{ uri: "file:///tmp/requirements.md" }],
+            agents: [{ name: "reviewer" }],
+            skills: [{ id: "testing" }],
+          },
           delivery: "queue",
         },
       })
@@ -125,29 +140,44 @@ describe("CommandPlugin.Plugin", () => {
       })
       expect(prompts).toEqual([
         {
-          text: PROMPT_GOAL.replaceAll("$ARGUMENTS", "ship the migration"),
+          text: PROMPT_GOAL.replaceAll("$ARGUMENTS", () => 'ship "quoted"\n$& $1 $ARGUMENTS'),
           files: [{ uri: "file:///tmp/requirements.md" }],
+          agents: [{ name: "reviewer" }],
+          skills: [{ id: "testing" }],
           delivery: "queue",
+          sessionID: Session.ID.make("ses_test"),
         },
         {
           text: PROMPT_INITIALIZE.replace("${path}", project).replaceAll("$ARGUMENTS", "extra context"),
           files: [{ uri: "file:///tmp/context.md" }],
+          agents: undefined,
+          skills: undefined,
           delivery: "queue",
+          sessionID: Session.ID.make("ses_test"),
         },
         {
           text: PROMPT_REVIEW.replace("${path}", project).replaceAll("$ARGUMENTS", () => "branch $& $$ $` $'"),
           files: undefined,
+          agents: undefined,
+          skills: undefined,
           delivery: "steer",
+          sessionID: Session.ID.make("ses_test"),
         },
         {
           text: PROMPT_INITIALIZE.replace("${path}", project).replaceAll("$ARGUMENTS", ""),
           files: undefined,
+          agents: undefined,
+          skills: undefined,
           delivery: "steer",
+          sessionID: Session.ID.make("ses_test"),
         },
         {
           text: PROMPT_REVIEW.replace("${path}", project).replaceAll("$ARGUMENTS", ""),
           files: undefined,
+          agents: undefined,
+          skills: undefined,
           delivery: "steer",
+          sessionID: Session.ID.make("ses_test"),
         },
       ])
     }),

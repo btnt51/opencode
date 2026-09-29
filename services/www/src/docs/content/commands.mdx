@@ -258,3 +258,20 @@ Review only the staged changes: !`git diff --cached`
 ```
 
 Saving this file updates `/review` without restarting OpenCode.
+
+## Goal command
+
+Use the built-in `/goal` command when you want the current session execution to carry a task through implementation and
+available verification rather than stop after planning.
+
+```text
+/goal Add CSV export, tests, and usage documentation
+```
+
+`/goal` is an instruction template, not a persistent job engine. It does not guarantee indefinite execution or automatic
+verification, and it does not bypass permissions. User cancellation, sandbox denial, agent step limits, and provider or
+network failures still stop or constrain the work. When one part is blocked, the agent should finish independent work and
+report the goal as partially blocked instead of fully complete.
+
+Like other built-ins, `/goal` can be replaced by a later project or global command definition using the loading precedence
+described above.
