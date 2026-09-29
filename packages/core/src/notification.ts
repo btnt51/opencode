@@ -175,7 +175,7 @@ function environmentValue(environment: Environment, lower: string, upper: string
 
 function bypassesProxy(url: URL, value: string | undefined) {
   if (!value) return false
-  const hostname = url.hostname.toLowerCase()
+  const hostname = url.hostname.replace(/^\[|\]$/g, "").toLowerCase()
   const port = url.port || (url.protocol === "https:" ? "443" : "80")
   return value.split(/[\s,]+/).some((entry) => {
     if (!entry) return false

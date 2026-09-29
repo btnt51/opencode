@@ -45,7 +45,7 @@ export class Service extends Context.Service<Service, Interface>()("@opencode/Sa
 
 const SAFE_ENV = new Set(["COLORTERM", "LANG", "LC_ALL", "LC_CTYPE", "PATH", "TERM", "TZ"])
 
-const layer = Layer.scoped(
+const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
     const config = yield* Config.Service
